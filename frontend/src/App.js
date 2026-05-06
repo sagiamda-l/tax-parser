@@ -15,7 +15,7 @@ function App() {
 
     try {
       // 서버 내부 IP 주소와 변경하신 백엔드 외부 포트를 정확히 입력합니다.
-      const res = await axios.post("http://${window.location.hostname}:3001/upload/tax-pdf", formData);
+      const res = await axios.post("http://192.168.0.241:3001/upload/tax-pdf", formData);
       setMessage(`${res.data.filename} 파싱 성공! (표 ${res.data.table_count}개 발견)`);
     } catch (err) {
       setMessage("업로드 중 오류가 발생했습니다.");
