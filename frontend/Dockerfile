@@ -6,7 +6,9 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
-RUN npm run build
+COPY . .
+# CI=false 설정을 추가하여 경고 때문에 빌드가 멈추는 것을 방지합니다.
+RUN CI=false npm run build
 
 # 실행용 Nginx (동일)
 FROM nginx:stable-alpine
