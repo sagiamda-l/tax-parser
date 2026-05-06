@@ -2,8 +2,8 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import os
-from .parser import TaxPdfParser
-from .models import init_db, SessionLocal, TaxData
+from .parser import parse_file
+from .models import SessionLocal, IncomeSummary, ExpenseDetail, init_db
 
 app = FastAPI()
 
