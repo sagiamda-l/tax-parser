@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import os
 from .parser import TaxPdfParser
+from .models import init_db, SessionLocal, TaxData
 
 app = FastAPI()
 
@@ -18,21 +19,42 @@ app.add_middleware(
 UPLOAD_DIR = "./data/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# 서버 시작 시 DB 초기화
+init_db()
+
 @app.post("/upload/tax-pdf")
-async def upload_pdf(file: UploadFile = File(...)):
-    # 1. 파일 임시 저장
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    with open(file_path, "wb") as buffer:
+async def handle_upload(file: UploadFile = File(...)):
+    # 1. 임시 저장
+    save_path = f"./data/uploads/{file.filename}"
+    with open(save_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
-    # 2. 파싱 로직 호출
-    parser = TaxPdfParser(file_path)
+    # 2. 파싱 실행 (추출된 데이터 리스트 확보)
+    parsed_results = parse_file(save_path)
     
-    # 예시로 표 데이터 일부를 반환 (추후 DB 저장 로직으로 연결)
-    parsed_tables = parser.extract_tables()
-    
-    return {
-        "filename": file.filename,
-        "table_count": len(parsed_tables),
-        "message": "파싱이 완료되었습니다."
-    }
+    # 3. DB 트랜잭션 시작
+    db = SessionLocal()
+    try:
+        for item in parsed_results:
+            if item['type'] == 'INCOME':
+                obj = IncomeSummary(
+                    year=item['year'],
+                    company=item['company'],
+                    total_salary=item['total_salary'],
+                    final_tax=item['final_tax']
+                )
+            else: # EXPENSE (PDF 간소화 또는 엑셀 카드 내역)
+                obj = ExpenseDetail(
+                    source="PDF" if file.filename.endswith('pdf') else "EXCEL",
+                    category=item.get('category', '기타'),
+                    store_name=item.get('store_name', '-'),
+                    amount=item['amount']
+                )
+            db.add(obj)
+        db.commit()
+        return {"status": "success", "count": len(parsed_results)}
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "detail": str(e)}
+    finally:
+        db.close()
