@@ -5,6 +5,15 @@ from .parser import TaxPdfParser
 
 app = FastAPI()
 
+# 모든 출처(Origin)에서의 요청을 허용하도록 설정 (개발 단계)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 UPLOAD_DIR = "./data/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
