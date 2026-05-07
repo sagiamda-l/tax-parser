@@ -29,7 +29,7 @@ const formatYAxis = (value) => {
 };
 
 // 태그 수정용 상태 관리
-// const [editedTags, setEditedTags] = useState({}); // { id_type: 'new_tag' }
+/*const [editedTags, setEditedTags] = useState({}); // { id_type: 'new_tag' }
 
 const handleTagChange = (id, type, newTag) => {
   setEditedTags((prev) => ({ ...prev, [`${id}_${type}`]: newTag }));
@@ -44,7 +44,7 @@ const bulkSaveTags = async () => {
   await axios.post(`${API_BASE}/save-tags`, updates);
   alert("태그가 저장되었습니다.");
 };
-
+*/
 function App() {
   const [selectedYear, setSelectedYear] = useState("2025");
   const [records, setRecords] = useState({ cards: [], documents: [] });
