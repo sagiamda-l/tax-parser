@@ -1,9 +1,11 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-import shutil
-import os
+import shutil, os
 from .parser import parse_file
-from .models import SessionLocal, IncomeSummary, ExpenseDetail, init_db
+from .services.card_parsers import parse_card_excel
+from .services.pdf_parsers import parse_tax_pdf
+from .classifier import assign_tag # 업체명 기반 태깅 함수
+from .database import SessionLocal, CardRecord, DocumentRecord, init_db
 
 app = FastAPI()
 
@@ -23,38 +25,37 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 init_db()
 
 @app.post("/upload/tax-pdf")
-async def handle_upload(file: UploadFile = File(...)):
+async def handle_upload(file: UploadFile = File(...), overwrite: bool = False):
     # 1. 임시 저장
-    save_path = f"./data/uploads/{file.filename}"
-    with open(save_path, "wb") as buffer:
+    file_path = f"./data/uploads/{file.filename}"
+    with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
     # 2. 파싱 실행 (추출된 데이터 리스트 확보)
-    parsed_results = parse_file(save_path)
+    parsed_results = parse_file(file_path)
     
-    # 3. DB 트랜잭션 시작
     db = SessionLocal()
     try:
-        for item in parsed_results:
-            if item['type'] == 'INCOME':
-                obj = IncomeSummary(
-                    year=item['year'],
-                    company=item['company'],
-                    total_salary=item['total_salary'],
-                    final_tax=item['final_tax']
-                )
-            else: # EXPENSE (PDF 간소화 또는 엑셀 카드 내역)
-                obj = ExpenseDetail(
-                    source="PDF" if file.filename.endswith('pdf') else "EXCEL",
-                    category=item.get('category', '기타'),
-                    store_name=item.get('store_name', '-'),
-                    amount=item['amount']
-                )
-            db.add(obj)
+        # 파일 형식에 따른 파싱
+        if file.filename.endswith(('.xlsx', '.xls')):
+            data = parse_card_excel(file_path)
+            for item in data:
+                # 덮어쓰기 로직 (날짜, 업체, 금액이 같으면 중복으로 간주 가능)
+                item['tag'] = assign_tag(item['vendor'])
+                db.add(CardRecord(**item))
+        else:
+            data = parse_tax_pdf(file_path)
+            for item in data:
+                db.add(DocumentRecord(**item))
+        
         db.commit()
-        return {"status": "success", "count": len(parsed_results)}
-    except Exception as e:
-        db.rollback()
-        return {"status": "error", "detail": str(e)}
+        return {"message": "업로드 및 파싱 완료", "count": len(data)}
     finally:
         db.close()
+
+@app.get("/records")
+async def get_records(year: str = None, category: str = None):
+    db = SessionLocal()
+    # 연도별, 분류별 필터링 쿼리 작성 (Frontend 4번 항목 대응)
+    # ... 쿼리 로직 ...
+    return {"data": "필터링된 결과"}
