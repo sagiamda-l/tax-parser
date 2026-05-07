@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 import shutil, os
 from .parser import parse_file
 from .services.card_parsers import parse_card_excel
@@ -7,7 +8,16 @@ from .services.pdf_parsers import parse_tax_pdf
 from .classifier import assign_tag # 업체명 기반 태깅 함수
 from .database import SessionLocal, CardRecord, DocumentRecord, init_db
 
-app = FastAPI()
+BUILD_DATE = os.getenv("APP_BUILD_DATE", "No Build Date Found")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print(f"🚀 [SERVER STARTUP] BUILD_DATE: {BUILD_DATE}")
+    print(f"📂 BASEDIR: {os.getcwd()}")
+    yield
+    print("👋 [SERVER SHUTDOWN] Goodbye!")
+
+app = FastAPI(lifespan=lifespan)
 
 # 모든 출처(Origin)에서의 요청을 허용하도록 설정 (개발 단계)
 app.add_middleware(
