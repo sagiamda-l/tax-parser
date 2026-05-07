@@ -24,7 +24,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # 서버 시작 시 DB 초기화
 init_db()
 
-@app.post("/upload/tax-pdf")
+@app.post("/upload")
 async def handle_upload(file: UploadFile = File(...), overwrite: bool = False):
     # 1. 임시 저장
     file_path = f"./data/uploads/{file.filename}"

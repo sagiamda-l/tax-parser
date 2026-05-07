@@ -46,7 +46,7 @@ def extract_withholding_tax(pdf):
 
     # 텍스트에서 연도 및 회사명 추출 (정규식 사용)
     first_page_text = pdf.pages[0].extract_text()
-    year_match = re.search(r"(\20\d{2})년도", first_page_text)
+    year_match = re.search(r"(20\d{2})년도", first_page_text)
     if year_match: year = int(year_match.group(1))
 
     # 표를 순회하며 급여(16번) 및 결정세액(72번) 위치 탐색
