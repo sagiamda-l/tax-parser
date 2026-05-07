@@ -16,6 +16,35 @@ import {
 
 const API_BASE = "http://192.168.0.241:3001";
 
+// 폰트 및 스타일 전역 설정 (App.css 또는 스타일 태그)
+const globalStyle = `
+  body { font-family: 'Pretendard', -apple-system, sans-serif; letter-spacing: -0.02em; }
+  .recharts-text { font-size: 12px; fill: #666; }
+`;
+
+// 금액 단위 포맷터 (예: 1,200,000 -> 120만)
+const formatYAxis = (value) => {
+  if (value >= 10000) return `${(value / 10000).toLocaleString()}만`;
+  return value.toLocaleString();
+};
+
+// 태그 수정용 상태 관리
+const [editedTags, setEditedTags] = useState({}); // { id_type: 'new_tag' }
+
+const handleTagChange = (id, type, newTag) => {
+  setEditedTags((prev) => ({ ...prev, [`${id}_${type}`]: newTag }));
+};
+
+const bulkSaveTags = async () => {
+  const updates = Object.entries(editedTags).map(([key, tag]) => ({
+    id: key.split("_")[0],
+    type: key.split("_")[1],
+    tag,
+  }));
+  await axios.post(`${API_BASE}/save-tags`, updates);
+  alert("태그가 저장되었습니다.");
+};
+
 function App() {
   const [selectedYear, setSelectedYear] = useState("2025");
   const [records, setRecords] = useState({ cards: [], documents: [] });
@@ -85,35 +114,6 @@ function App() {
       await axios.delete(`${API_BASE}/records/${selectedYear}`);
       fetchData();
     }
-
-    // 폰트 및 스타일 전역 설정 (App.css 또는 스타일 태그)
-    const globalStyle = `
-  body { font-family: 'Pretendard', -apple-system, sans-serif; letter-spacing: -0.02em; }
-  .recharts-text { font-size: 12px; fill: #666; }
-`;
-
-    // 금액 단위 포맷터 (예: 1,200,000 -> 120만)
-    const formatYAxis = (value) => {
-      if (value >= 10000) return `${(value / 10000).toLocaleString()}만`;
-      return value.toLocaleString();
-    };
-
-    // 태그 수정용 상태 관리
-    const [editedTags, setEditedTags] = useState({}); // { id_type: 'new_tag' }
-
-    const handleTagChange = (id, type, newTag) => {
-      setEditedTags((prev) => ({ ...prev, [`${id}_${type}`]: newTag }));
-    };
-
-    const bulkSaveTags = async () => {
-      const updates = Object.entries(editedTags).map(([key, tag]) => ({
-        id: key.split("_")[0],
-        type: key.split("_")[1],
-        tag,
-      }));
-      await axios.post(`${API_BASE}/save-tags`, updates);
-      alert("태그가 저장되었습니다.");
-    };
   };
 
   const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8"];
