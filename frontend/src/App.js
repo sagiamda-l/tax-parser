@@ -1,61 +1,163 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { Trash2, Upload, Search, AlertCircle } from 'lucide-react';
+
+const API_BASE = "http://192.168.0.241:3001";
 
 function App() {
-  const [year, setYear] = useState('2025');
-  const [data, setData] = useState({ cards: [], documents: [] });
-  const [stats, setStats] = useState([]);
+  const [selectedYear, setSelectedYear] = useState('2025');
+  const [records, setRecords] = useState({ cards: [], documents: [] });
+  const [filterTag, setFilterTag] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  // 데이터 로드 및 통계 계산
-  const fetchData = async () => {
-    const res = await axios.get(`http://192.168.0.241:3001/records?year=${year}`);
-    setData(res.data);
-    
-    // 태그별 집계 (그래프용)
-    const tagMap = res.data.cards.reduce((acc, curr) => {
-      const tag = curr.tag || '기타';
+  // 1. 데이터 조회 및 필터링 (연도 기준)
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/records?year=${selectedYear}`);
+      setRecords(res.data);
+    } catch (err) {
+      alert("데이터를 가져오는 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedYear]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // 2. 태그별 집계 데이터 생성 (그래프용)
+  const getChartData = () => {
+    const combined = [...records.cards, ...records.documents];
+    const agg = combined.reduce((acc, curr) => {
+      const tag = curr.tag || '미분류';
       acc[tag] = (acc[tag] || 0) + curr.amount;
       return acc;
     }, {});
-    
-    setStats(Object.keys(tagMap).map(key => ({ name: key, total: tagMap[key] })));
+    return Object.keys(agg).map(key => ({ name: key, value: agg[key] }));
   };
 
-  const handleUpload = async (file) => {
-    // 1. 중복 체크
-    const check = await axios.get(`http://192.168.0.241:3001/check-exists/${year}`);
-    if (check.data.exists && !window.confirm(`${year}년도 데이터가 이미 있습니다. 덮어쓰시겠습니까?`)) {
-      return;
+  // 3. 파일 업로드 (덮어쓰기 체크 포함)
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // 해당 연도 데이터 존재 여부 확인
+    const check = await axios.get(`${API_BASE}/check-exists/${selectedYear}`);
+    if (check.data.exists) {
+      if (!window.confirm(`${selectedYear}년도 데이터가 이미 존재합니다. 기존 자료를 유지하고 추가하시겠습니까? (취소 시 기존 데이터는 유지됩니다)`)) {
+        // 실제 '덮어쓰기'를 원할 경우 백엔드에서 해당 연도를 먼저 삭제하는 로직을 연동할 수 있습니다.
+      }
     }
-    // 2. 업로드 진행 (생략)
+
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      await axios.post(`${API_BASE}/upload`, formData);
+      alert("업로드 성공!");
+      fetchData();
+    } catch (err) {
+      alert("업로드 실패");
+    }
   };
+
+  // 4. 해당 연도 자료 삭제
+  const handleDeleteYear = async () => {
+    if (window.confirm(`${selectedYear}년도 모든 자료를 삭제하시겠습니까?`)) {
+      await axios.delete(`${API_BASE}/records/${selectedYear}`);
+      fetchData();
+    }
+  };
+
+  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
   return (
-    <div className="p-5">
-      <h1>Tax DashBoard</h1>
-      
-      {/* 연도 선택 및 삭제 */}
-      <select value={year} onChange={(e) => setYear(e.target.value)}>
-        <option value="2024">2024</option>
-        <option value="2025">2025</option>
-      </select>
-      <button onClick={() => fetchData()}>조회</button>
-      <button onClick={() => {/* 삭제 API 호출 */}} style={{color: 'red'}}>해당 연도 삭제</button>
+    <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', fontFamily: 'sans-serif' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #eee', paddingBottom: '20px' }}>
+        <h2>📊 Tax Parser Dashboard</h2>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} style={{ padding: '8px' }}>
+            {['2023', '2024', '2025', '2026'].map(y => <option key={y} value={y}>{y}년</option>)}
+          </select>
+          <label style={{ cursor: 'pointer', padding: '8px 15px', background: '#007bff', color: 'white', borderRadius: '4px' }}>
+            <Upload size={16} /> 파일 업로드
+            <input type="file" hidden onChange={handleFileUpload} />
+          </label>
+          <button onClick={handleDeleteYear} style={{ padding: '8px 15px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '4px' }}>
+            <Trash2 size={16} /> {selectedYear}년 삭제
+          </button>
+        </div>
+      </header>
 
-      {/* 태그별 추이 그래프 */}
-      <div style={{ width: '100%', height: 300 }}>
-        <ResponsiveContainer>
-          <BarChart data={stats}>
-            <XAxis dataKey="name" />
-            <YAxis />
-            <Tooltip />
-            <Bar dataKey="total" fill="#8884d8" />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      {/* 통계 섹션 */}
+      <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '30px' }}>
+        <div style={{ background: '#f8f9fa', padding: '20px', borderRadius: '8px', height: '350px' }}>
+          <h4>태그별 지출 추이</h4>
+          <ResponsiveContainer width="100%" height="90%">
+            <BarChart data={getChartData()}>
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip formatter={(value) => value.toLocaleString() + "원"} />
+              <Bar dataKey="value" fill="#007bff" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div style={{ background: '#f8f9fa', padding: '20px', borderRadius: '8px', height: '350px' }}>
+          <h4>지출 비중</h4>
+          <ResponsiveContainer width="100%" height="90%">
+            <PieChart>
+              <Pie data={getChartData()} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                {getChartData().map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+              </Pie>
+              <Tooltip formatter={(value) => value.toLocaleString() + "원"} />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
 
-      {/* 내역 표 및 필터링 UI (추가 구현) */}
+      {/* 데이터 테이블 섹션 */}
+      <section style={{ marginTop: '40px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <h4>상세 내역 (총 {records.cards.length + records.documents.length}건)</h4>
+          <input 
+            type="text" 
+            placeholder="태그로 필터링..." 
+            value={filterTag} 
+            onChange={(e) => setFilterTag(e.target.value)}
+            style={{ padding: '5px' }}
+          />
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#eee' }}>
+              <th style={{ padding: '10px', textAlign: 'left' }}>날짜/분류</th>
+              <th style={{ padding: '10px', textAlign: 'left' }}>항목/업체명</th>
+              <th style={{ padding: '10px', textAlign: 'right' }}>금액</th>
+              <th style={{ padding: '10px', textAlign: 'center' }}>태그</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...records.cards, ...records.documents]
+              .filter(item => !filterTag || (item.tag && item.tag.includes(filterTag)))
+              .map((item, idx) => (
+                <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '10px' }}>{item.pay_date || item.classification}</td>
+                  <td style={{ padding: '10px' }}>{item.vendor || item.amount_type}</td>
+                  <td style={{ padding: '10px', textAlign: 'right' }}>{item.amount.toLocaleString()}원</td>
+                  <td style={{ padding: '10px', textAlign: 'center' }}>
+                    <span style={{ padding: '3px 8px', background: '#e2e3e5', borderRadius: '12px', fontSize: '12px' }}>
+                      {item.tag || '미분류'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </section>
     </div>
   );
 }
+
+export default App;
