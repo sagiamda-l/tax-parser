@@ -2,3 +2,5 @@
 *.pdf
 *.xls
 *.xlsx
+*.pyc
+backend/run_local_test.py
