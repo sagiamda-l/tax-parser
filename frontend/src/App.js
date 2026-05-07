@@ -29,7 +29,7 @@ const formatYAxis = (value) => {
 };
 
 // 태그 수정용 상태 관리
-const [editedTags, setEditedTags] = useState({}); // { id_type: 'new_tag' }
+// const [editedTags, setEditedTags] = useState({}); // { id_type: 'new_tag' }
 
 const handleTagChange = (id, type, newTag) => {
   setEditedTags((prev) => ({ ...prev, [`${id}_${type}`]: newTag }));
