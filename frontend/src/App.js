@@ -194,13 +194,24 @@ function App() {
           }}
         >
           <h4>태그별 지출 추이</h4>
-          <ResponsiveContainer width="100%" height="90%">
-            <BarChart data={getChartData()}>
-              <XAxis dataKey="name" />
-              <YAxis tickFormatter={formatYAxis} width={60} />{" "}
-              {/* 숫자 잘림 방지 width 확보 */}
-              <Tooltip formatter={(val) => `${val.toLocaleString()}원`} />
-              <Bar dataKey="value" fill="#4dabf7" radius={[4, 4, 0, 0]} />
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={getChartData()}
+              margin={{ top: 20, right: 30, left: 40, bottom: 5 }}
+            >
+              <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+              <YAxis
+                tickFormatter={formatYAxis}
+                width={80} // 숫자 공간 확보
+                tick={{ fontSize: 12 }}
+              />
+              <Tooltip formatter={(value) => `${value.toLocaleString()}원`} />
+              <Bar
+                dataKey="value"
+                fill="#4dabf7"
+                barSize={40}
+                radius={[4, 4, 0, 0]}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>

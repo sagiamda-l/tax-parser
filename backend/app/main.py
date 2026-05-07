@@ -19,10 +19,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# CORS 설정
+origins = [
+    "http://192.168.0.241:3000",
+    "http://192.168.0.241:3001",
+    "http://localhost:3000",
+]
+
 # 모든 출처(Origin)에서의 요청을 허용하도록 설정 (개발 단계)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

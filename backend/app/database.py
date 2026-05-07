@@ -47,7 +47,7 @@ class DocumentRecord(Base):
     amount = Column(Float)         # 금액
     classification = Column(String) # 서류 종류 (원천징수, 간소화 등)
     tag = Column(String, nullable=True) # 사용처 태그
-    file_info = relationship("UploadFileRecord", back_populates="cards")
+    file_info = relationship("UploadFileRecord", back_populates="docs")
 
 SessionLocal = sessionmaker(bind=engine)
 
