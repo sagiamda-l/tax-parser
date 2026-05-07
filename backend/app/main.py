@@ -94,3 +94,15 @@ async def delete_year_data(year: str):
     db.commit()
     db.close()
     return {"message": f"{year}년도 데이터가 삭제되었습니다."}
+
+@app.post("/save-tags")
+async def save_tags(updates: list):
+    db = SessionLocal()
+    for item in updates:
+        if item['type'] == 'card':
+            db.query(CardRecord).filter(CardRecord.id == item['id']).update({"tag": item['tag']})
+        else:
+            db.query(DocumentRecord).filter(DocumentRecord.id == item['id']).update({"tag": item['tag']})
+    db.commit()
+    db.close()
+    return {"message": "저장 완료"}
