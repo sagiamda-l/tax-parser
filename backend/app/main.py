@@ -53,9 +53,34 @@ async def handle_upload(file: UploadFile = File(...), overwrite: bool = False):
     finally:
         db.close()
 
-@app.get("/records")
-async def get_records(year: str = None, category: str = None):
+# [기능 1] 특정 연도 데이터 존재 여부 확인 (중복 체크)
+@app.get("/check-exists/{year}")
+async def check_year_data(year: str):
     db = SessionLocal()
-    # 연도별, 분류별 필터링 쿼리 작성 (Frontend 4번 항목 대응)
-    # ... 쿼리 로직 ...
-    return {"data": "필터링된 결과"}
+    # CardRecord의 pay_date(문자열)에서 연도 추출 비교
+    exists = db.query(CardRecord).filter(CardRecord.pay_date.contains(year)).first() is not None
+    db.close()
+    return {"exists": exists}
+
+# [기능 2] 데이터 조회 및 필터링
+@app.get("/records")
+async def get_records(year: str = None, tag: str = None):
+    db = SessionLocal()
+    query = db.query(CardRecord)
+    if year: query = query.filter(CardRecord.pay_date.contains(year))
+    if tag: query = query.filter(CardRecord.tag == tag)
+    
+    # PDF 데이터(DocumentRecord)도 함께 가져와서 병합하거나 따로 제공
+    cards = query.all()
+    docs = db.query(DocumentRecord).all() # 연도 필터링 로직 추가 필요
+    db.close()
+    return {"cards": cards, "documents": docs}
+
+# [기능 3] 대상 연도 자료 삭제
+@app.delete("/records/{year}")
+async def delete_year_data(year: str):
+    db = SessionLocal()
+    db.query(CardRecord).filter(CardRecord.pay_date.contains(year)).delete(synchronize_session=False)
+    db.commit()
+    db.close()
+    return {"message": f"{year}년도 데이터가 삭제되었습니다."}
