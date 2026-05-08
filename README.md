@@ -1,26 +1,18 @@
-# Tax Parser (개인 연말정산 및 소득세 자동화 시스템)
+# 📑 Tax Parser Pro (v2.0)
 
-이 프로젝트는 복잡한 연말정산 및 소득세 신고 과정을 자동화하기 위한 개인용 도구입니다. 국세청 간소화 자료와 원천징수 영수증을 분석하여 개인별 세무 데이터를 정제하고 관리합니다.
+국세청 PDF 및 카드 내역 엑셀 파일을 분석하여 지출 현황을 시각화합니다.
 
-## 1. 주요 기능
-- **데이터 파싱:** 근로소득 원천징수영수증, 사업소득 원천징수영수증, 연말정산 간소화 PDF 데이터 추출
-- **통합 관리:** 분산된 소득 및 공제 자료를 SQLite DB로 통합
-- **분류 자동화:** 사용자 정의 규칙을 통한 지출 항목 카테고리 매핑
-- **시각화:** 연도별 소득 추이 및 공제 현황 대시보드
+## 🛠 주요 업데이트 사항
 
-## 2. 기술 스택
-- **Frontend:** React
-- **Backend:** Python (FastAPI 추천)
-- **Database:** SQLite
-- **Infrastructure:** Docker, Docker Compose
+- **중복 제어**: 파일명 중복 시 사용자 선택 분기 (덮어쓰기/취소)
+- **PK 최적화**: 밀리초 단위 타임스탬프와 랜덤 ID 결합으로 데이터 무결성 확보
+- **태그 커스터마이징**: 아이콘/컬러 기반 태그 시스템 및 일괄 저장 지원
+- **데이터 필터링**: 이용자별, 문서별 콤보박스 필터 제공
 
-## 3. 시작하기 (Quick Start)
+## 🐳 배포 가이드
 
-### 전제 조건
-- Docker 및 Docker Compose 설치
-
-### 실행 방법
-1. 저장소 클론
+1. 환경 설정: `.env` 파일에 백엔드 IP 설정
+2. 빌드 및 실행:
    ```bash
-   git clone [https://github.com/sagiamda-l/tax-parser.git](https://github.com/sagiamda-l/tax-parser.git)
-   cd tax-parser
+   docker-compose up --build -d
+   ```

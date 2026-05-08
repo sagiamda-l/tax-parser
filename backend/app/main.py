@@ -1,115 +1,63 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Depends, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-import shutil, os
-from .parser import parse_file
-from .services.card_parsers import parse_card_excel
-from .services.pdf_parsers import parse_tax_pdf
-from .classifier import assign_tag # 업체명 기반 태깅 함수
-from .database import SessionLocal, CardRecord, DocumentRecord, init_db
+from sqlalchemy.orm import Session
+from .database import SessionLocal, init_db, UploadFileRecord, CardRecord, DocumentRecord
+import random, os
+from datetime import datetime
+from typing import List
 
-BUILD_DATE = os.getenv("APP_BUILD_DATE", "No Build Date Found")
+app = FastAPI()
+init_db()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    print(f"🚀 [SERVER STARTUP] BUILD_DATE: {BUILD_DATE}")
-    print(f"📂 BASEDIR: {os.getcwd()}")
-    yield
-    print("👋 [SERVER SHUTDOWN] Goodbye!")
-
-app = FastAPI(lifespan=lifespan)
-
-# CORS 설정
-origins = [
-    "http://192.168.0.241:3000",
-    "http://192.168.0.241:3001",
-    "http://localhost:3000",
-]
-
-# 모든 출처(Origin)에서의 요청을 허용하도록 설정 (개발 단계)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"], # 보안 환경에 따라 특정 IP로 제한 가능
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = "./data/uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-# 서버 시작 시 DB 초기화
-init_db()
+def get_db():
+    db = SessionLocal()
+    try: yield db
+    finally: db.close()
 
 @app.post("/upload")
-async def handle_upload(file: UploadFile = File(...), overwrite: bool = False):
-    # 1. 임시 저장
-    file_path = f"./data/uploads/{file.filename}"
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+async def handle_upload(
+    file: UploadFile = File(...), 
+    overwrite: bool = Form(False),
+    db: Session = Depends(get_db)
+):
+    existing = db.query(UploadFileRecord).filter(UploadFileRecord.filename == file.filename).first()
     
-    # 2. 파싱 실행 (추출된 데이터 리스트 확보)
-    parsed_results = parse_file(file_path)
-    
-    db = SessionLocal()
-    try:
-        # 파일 형식에 따른 파싱
-        if file.filename.endswith(('.xlsx', '.xls')):
-            data = parse_card_excel(file_path)
-            for item in data:
-                # 덮어쓰기 로직 (날짜, 업체, 금액이 같으면 중복으로 간주 가능)
-                item['tag'] = assign_tag(item['vendor'])
-                db.add(CardRecord(**item))
-        else:
-            data = parse_tax_pdf(file_path)
-            for item in data:
-                db.add(DocumentRecord(**item))
-        
+    if existing:
+        if not overwrite:
+            raise HTTPException(status_code=409, detail="Duplicate filename")
+        db.delete(existing)
         db.commit()
-        return {"message": "업로드 및 파싱 완료", "count": len(data)}
-    finally:
-        db.close()
 
-# [기능 1] 특정 연도 데이터 존재 여부 확인 (중복 체크)
-@app.get("/check-exists/{year}")
-async def check_year_data(year: str):
-    db = SessionLocal()
-    # CardRecord의 pay_date(문자열)에서 연도 추출 비교
-    exists = db.query(CardRecord).filter(CardRecord.pay_date.contains(year)).first() is not None
-    db.close()
-    return {"exists": exists}
-
-# [기능 2] 데이터 조회 및 필터링
-@app.get("/records")
-async def get_records(year: str = None, tag: str = None):
-    db = SessionLocal()
-    query = db.query(CardRecord)
-    if year: query = query.filter(CardRecord.pay_date.contains(year))
-    if tag: query = query.filter(CardRecord.tag == tag)
+    # PK 생성: 연월일시분초밀리초(17자) + 랜덤5자
+    new_pk = datetime.now().strftime('%Y%m%d%H%M%S%f')[:-3] + str(random.randint(10000, 99999))
     
-    # PDF 데이터(DocumentRecord)도 함께 가져와서 병합하거나 따로 제공
-    cards = query.all()
-    docs = db.query(DocumentRecord).all() # 연도 필터링 로직 추가 필요
-    db.close()
-    return {"cards": cards, "documents": docs}
-
-# [기능 3] 대상 연도 자료 삭제
-@app.delete("/records/{year}")
-async def delete_year_data(year: str):
-    db = SessionLocal()
-    db.query(CardRecord).filter(CardRecord.pay_date.contains(year)).delete(synchronize_session=False)
+    # [임시 파싱 로직 - 실제 parser.py 호출로 대체]
+    new_file = UploadFileRecord(id=new_pk, filename=file.filename, target_year="2025", doc_type="Card")
+    db.add(new_file)
+    
+    # 예시 데이터 생성
+    sample_card = CardRecord(file_id=new_pk, pay_date="2025-05-08", amount=50000.0, vendor="식당", user="이성렬", tag="식비")
+    db.add(sample_card)
+    
     db.commit()
-    db.close()
-    return {"message": f"{year}년도 데이터가 삭제되었습니다."}
+    return {"status": "success", "file_id": new_pk}
 
-@app.post("/save-tags")
-async def save_tags(updates: list):
-    db = SessionLocal()
+@app.get("/records")
+def get_records(year: str, db: Session = Depends(get_db)):
+    cards = db.query(CardRecord).join(UploadFileRecord).filter(UploadFileRecord.target_year == year).all()
+    return {"cards": cards}
+
+@app.post("/tags/bulk-update")
+async def bulk_update(updates: List[dict], db: Session = Depends(get_db)):
     for item in updates:
-        if item['type'] == 'card':
-            db.query(CardRecord).filter(CardRecord.id == item['id']).update({"tag": item['tag']})
-        else:
-            db.query(DocumentRecord).filter(DocumentRecord.id == item['id']).update({"tag": item['tag']})
+        db.query(CardRecord).filter(CardRecord.id == item['id']).update({"tag": item['tag']})
     db.commit()
-    db.close()
-    return {"message": "저장 완료"}
+    return {"message": "Success"}
