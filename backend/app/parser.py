@@ -24,7 +24,8 @@ class TaxParser:
         return "기타"
 
     def parse(self, file_path, filename):
-        ext = os.path.splitext(filename).lower()
+        localFilename = os.path.basename(filename)
+        ext = localFilename.lower()
         if ext in ['.xls', '.xlsx']:
             return self._parse_excel(file_path)
         elif ext == '.pdf':
