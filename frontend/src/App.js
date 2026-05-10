@@ -22,72 +22,91 @@ function App() {
   const [modified, setModified] = useState({});
 
   useEffect(() => {
-    load();
+    loadData();
   }, []);
 
-  const load = async () => {
+  const loadData = async () => {
     try {
       const res = await axios.get(`${API_URL}/records?year=2025`);
-      setRecords(res.data);
+      setRecords(res.data || []);
     } catch (e) {
-      console.error("데이터 로드 실패");
+      console.error("데이터 로드 중 오류 발생");
     }
   };
 
-  const upload = async (overwrite = false) => {
-    if (!file) return alert("파일을 선택하세요.");
+  const onUpload = async (overwrite = false) => {
+    if (!file) return alert("파일을 선택해주세요.");
     const fd = new FormData();
     fd.append("file", file);
     fd.append("overwrite", overwrite);
 
     try {
       const res = await axios.post(`${API_URL}/upload`, fd);
-      alert(`${res.data.count}건의 데이터를 파싱했습니다.`);
-      load();
+      alert(`${res.data.count}건의 내역을 성공적으로 파싱했습니다.`);
+      loadData();
     } catch (err) {
       if (
         err.response?.status === 409 &&
-        window.confirm("동일 파일 존재. 덮어쓸까요?")
+        window.confirm("동일 파일명이 존재합니다. 덮어쓸까요?")
       ) {
-        upload(true);
+        onUpload(true);
+      } else {
+        alert("업로드 실패: 파일을 확인해주세요.");
       }
     }
   };
 
-  const save = async () => {
+  const onSaveTags = async () => {
     const payload = Object.entries(modified).map(([id, tag]) => ({
       id: parseInt(id),
       tag,
     }));
     if (!payload.length) return;
     await axios.post(`${API_URL}/tags/bulk-save`, payload);
-    alert("저장되었습니다.");
+    alert("태그가 저장되었습니다.");
     setModified({});
-    load();
+    loadData();
   };
 
-  const filtered = useMemo(
-    () =>
-      records.filter(
-        (r) =>
-          (filters.user === "All" || r.user === filters.user) &&
-          (filters.filename === "All" || r.filename === filters.filename),
-      ),
-    [records, filters],
-  );
+  const filteredData = useMemo(() => {
+    return records.filter(
+      (r) =>
+        (filters.user === "All" || r.user === filters.user) &&
+        (filters.filename === "All" || r.filename === filters.filename),
+    );
+  }, [records, filters]);
 
   return (
-    <div style={{ padding: "20px", fontFamily: "sans-serif" }}>
-      <h1>📂 종합소득세 필요경비 분류</h1>
+    <div style={{ padding: "20px", maxWidth: "1400px", margin: "0 auto" }}>
+      <h1>📂 종합소득세 필요경비 분류 시스템</h1>
 
+      {/* 업로드 섹션 */}
       <div
-        style={{ marginBottom: "20px", padding: "15px", background: "#f8f9fa" }}
+        style={{
+          padding: "20px",
+          background: "#f1f3f5",
+          borderRadius: "8px",
+          marginBottom: "20px",
+        }}
       >
         <input type="file" onChange={(e) => setFile(e.target.files[0])} />
-        <button onClick={() => upload(false)}>업로드 시작</button>
+        <button
+          onClick={() => onUpload(false)}
+          style={{ padding: "5px 15px", cursor: "pointer" }}
+        >
+          파일 분석 및 업로드
+        </button>
       </div>
 
-      <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
+      {/* 필터 및 저장 */}
+      <div
+        style={{
+          display: "flex",
+          gap: "10px",
+          marginBottom: "15px",
+          alignItems: "center",
+        }}
+      >
         <select
           onChange={(e) => setFilters({ ...filters, user: e.target.value })}
         >
@@ -103,45 +122,59 @@ function App() {
           ))}
         </select>
         <button
-          onClick={save}
-          style={{ marginLeft: "auto", background: "#339af0", color: "#fff" }}
+          onClick={onSaveTags}
+          style={{
+            marginLeft: "auto",
+            background: "#228be6",
+            color: "white",
+            border: "none",
+            padding: "8px 20px",
+            borderRadius: "4px",
+          }}
         >
-          태그 저장
+          태그 일괄 저장
         </button>
       </div>
 
-      <table border="1" style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead style={{ background: "#eee" }}>
-          <tr>
-            <th>문서명</th>
+      {/* 그리드 */}
+      <table
+        style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}
+      >
+        <thead>
+          <tr style={{ background: "#343a40", color: "white" }}>
+            <th style={{ padding: "10px" }}>문서명</th>
             <th>이용자</th>
             <th>날짜</th>
-            <th>내역</th>
+            <th>가맹점/내역</th>
             <th>금액</th>
-            <th>태그</th>
+            <th>경비분류(태그)</th>
           </tr>
         </thead>
         <tbody>
-          {filtered.map((r) => (
-            <tr key={r.id}>
-              <td style={{ fontSize: "11px" }}>{r.filename}</td>
+          {filteredData.map((r) => (
+            <tr key={r.id} style={{ borderBottom: "1px solid #dee2e6" }}>
+              <td style={{ fontSize: "11px", color: "#868e96" }}>
+                {r.filename}
+              </td>
               <td>{r.user}</td>
               <td>{r.pay_date}</td>
-              <td>{r.vendor}</td>
-              <td style={{ textAlign: "right" }}>
+              <td style={{ textAlign: "left" }}>{r.vendor}</td>
+              <td style={{ textAlign: "right", fontWeight: "bold" }}>
                 {r.amount.toLocaleString()}원
               </td>
               <td>
                 <select
                   value={modified[r.id] || r.tag}
+                  style={{
+                    padding: "4px",
+                    borderRadius: "4px",
+                    backgroundColor:
+                      (EXPENSE_TAGS[modified[r.id] || r.tag]?.color || "#fff") +
+                      "22",
+                  }}
                   onChange={(e) =>
                     setModified({ ...modified, [r.id]: e.target.value })
                   }
-                  style={{
-                    backgroundColor:
-                      (EXPENSE_TAGS[modified[r.id] || r.tag]?.color || "#fff") +
-                      "33",
-                  }}
                 >
                   {Object.keys(EXPENSE_TAGS).map((t) => (
                     <option key={t} value={t}>
@@ -157,4 +190,5 @@ function App() {
     </div>
   );
 }
+
 export default App;
