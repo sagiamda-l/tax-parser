@@ -1,18 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import axios from "axios";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from "recharts";
 
 const API_URL = "http://192.168.0.241:3001";
 
-// 9가지 필요경비 분류 체계 정의
 const EXPENSE_TAGS = {
   기업업무추진비: { color: "#ff8787", icon: "🤝" },
   기부금: { color: "#f06595", icon: "❤️" },
@@ -29,59 +19,55 @@ function App() {
   const [records, setRecords] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [filters, setFilters] = useState({ user: "All", filename: "All" });
-  const [modifiedTags, setModifiedTags] = useState({}); // { id: newTag }
+  const [pendingTags, setPendingTags] = useState({});
 
   useEffect(() => {
-    fetchData();
+    loadData();
   }, []);
 
-  const fetchData = async () => {
+  const loadData = async () => {
     const res = await axios.get(`${API_URL}/records?year=2025`);
     setRecords(res.data);
   };
 
   const handleUpload = async (overwrite = false) => {
-    if (!selectedFile) return alert("파일을 선택하세요.");
+    if (!selectedFile) return;
     const formData = new FormData();
     formData.append("file", selectedFile);
     formData.append("overwrite", overwrite);
 
     try {
-      await axios.post(`${API_URL}/upload`, formData);
-      alert("업로드 성공!");
-      fetchData();
+      const res = await axios.post(`${API_URL}/upload`, formData);
+      alert(`${res.data.count}건의 내역이 파싱되었습니다.`);
+      loadData();
     } catch (err) {
       if (
         err.response?.status === 409 &&
-        window.confirm("동일 파일명이 존재합니다. 덮어쓸까요?")
+        window.confirm(
+          "중복 파일입니다. 기존 데이터를 삭제하고 다시 파싱할까요?",
+        )
       ) {
         handleUpload(true);
       }
     }
   };
 
-  const saveTags = async () => {
-    const payload = Object.entries(modifiedTags).map(([id, tag]) => ({
+  const onTagChange = (id, newTag) => {
+    setPendingTags((prev) => ({ ...prev, [id]: newTag }));
+  };
+
+  const handleBulkSave = async () => {
+    const updates = Object.entries(pendingTags).map(([id, tag]) => ({
       id: parseInt(id),
       tag,
     }));
-    if (payload.length === 0) return;
-    await axios.post(`${API_URL}/tags/bulk-save`, payload);
-    alert("변경사항이 저장되었습니다.");
-    setModifiedTags({});
-    fetchData();
+    if (updates.length === 0) return;
+    await axios.post(`${API_URL}/tags/bulk-save`, updates);
+    alert("태그 변경사항이 저장되었습니다.");
+    setPendingTags({});
+    loadData();
   };
 
-  // 동적 필터 옵션 생성
-  const options = useMemo(
-    () => ({
-      users: ["All", ...new Set(records.map((r) => r.user))],
-      files: ["All", ...new Set(records.map((r) => r.filename))],
-    }),
-    [records],
-  );
-
-  // 필터링 적용 데이터
   const filtered = useMemo(() => {
     return records.filter(
       (r) =>
@@ -90,31 +76,28 @@ function App() {
     );
   }, [records, filters]);
 
-  return (
-    <div style={{ padding: "20px", maxWidth: "1200px", margin: "0 auto" }}>
-      <h1>📂 필요경비 관리 시스템</h1>
+  const userOptions = ["All", ...new Set(records.map((r) => r.user))];
+  const fileOptions = ["All", ...new Set(records.map((r) => r.filename))];
 
-      {/* 1. 업로드 영역 */}
-      <div
-        style={{
-          marginBottom: "20px",
-          border: "1px solid #ddd",
-          padding: "15px",
-        }}
-      >
+  return (
+    <div style={{ padding: "20px" }}>
+      <h1>📂 세무 비용 분류 시스템</h1>
+
+      {/* 업로드 */}
+      <div style={{ marginBottom: "20px" }}>
         <input
           type="file"
           onChange={(e) => setSelectedFile(e.target.files[0])}
         />
-        <button onClick={() => handleUpload(false)}>파일 업로드</button>
+        <button onClick={() => handleUpload(false)}>업로드 및 파싱</button>
       </div>
 
-      {/* 2. 필터 및 저장 버튼 */}
-      <div style={{ marginBottom: "10px", display: "flex", gap: "10px" }}>
+      {/* 필터 및 일괄저장 */}
+      <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
         <select
           onChange={(e) => setFilters({ ...filters, user: e.target.value })}
         >
-          {options.users.map((u) => (
+          {userOptions.map((u) => (
             <option key={u} value={u}>
               {u === "All" ? "이용자(전체)" : u}
             </option>
@@ -123,51 +106,54 @@ function App() {
         <select
           onChange={(e) => setFilters({ ...filters, filename: e.target.value })}
         >
-          {options.files.map((f) => (
+          {fileOptions.map((f) => (
             <option key={f} value={f}>
               {f === "All" ? "문서명(전체)" : f}
             </option>
           ))}
         </select>
         <button
-          onClick={saveTags}
-          style={{ marginLeft: "auto", background: "#4c6ef5", color: "#fff" }}
+          onClick={handleBulkSave}
+          style={{ marginLeft: "auto", background: "#339af0", color: "white" }}
         >
-          태그변경사항 저장
+          태그변경사항 일괄 저장
         </button>
       </div>
 
-      {/* 3. 내역 그리드 */}
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead style={{ background: "#f8f9fa" }}>
-          <tr>
+      {/* 그리드 */}
+      <table
+        border="1"
+        style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}
+      >
+        <thead>
+          <tr style={{ background: "#f8f9fa" }}>
             <th>문서명</th>
             <th>이용자</th>
             <th>날짜</th>
+            <th>내역(가맹점)</th>
             <th>금액</th>
             <th>비용분류(태그)</th>
           </tr>
         </thead>
         <tbody>
           {filtered.map((r) => (
-            <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
+            <tr key={r.id}>
               <td style={{ fontSize: "11px" }}>{r.filename}</td>
               <td>{r.user}</td>
               <td>{r.pay_date}</td>
+              <td>{r.vendor}</td>
               <td>{r.amount.toLocaleString()}원</td>
               <td>
                 <select
-                  value={modifiedTags[r.id] || r.tag}
+                  value={pendingTags[r.id] || r.tag}
+                  onChange={(e) => onTagChange(r.id, e.target.value)}
                   style={{
                     backgroundColor:
-                      (EXPENSE_TAGS[modifiedTags[r.id] || r.tag]?.color ||
-                        "#eee") + "44",
-                    padding: "3px",
+                      (EXPENSE_TAGS[pendingTags[r.id] || r.tag]?.color ||
+                        "#eee") + "33",
+                    padding: "4px",
                     borderRadius: "4px",
                   }}
-                  onChange={(e) =>
-                    setModifiedTags({ ...modifiedTags, [r.id]: e.target.value })
-                  }
                 >
                   {Object.keys(EXPENSE_TAGS).map((t) => (
                     <option key={t} value={t}>
