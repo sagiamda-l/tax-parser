@@ -94,32 +94,36 @@ async def bulk_save_tags(updates: List[dict], db: Session = Depends(get_db)):
     db.commit()
     return {"status": "ok"}
 
-# 1. 문서별 통계 및 항목별 통계 API
 @app.get("/stats")
 def get_stats(year: str = "2025", db: Session = Depends(get_db)):
-    # 문서별 통계
-    doc_stats = db.query(
-        CardRecord.file_id,
-        func.count(CardRecord.id).label('count'),
-        func.sum(CardRecord.amount).label('total')
-    ).group_by(CardRecord.file_id).all()
+    try:
+        # 문서별 통계: filename 필드를 기준으로 그룹화
+        # (모델에 filename이 없다면 file_id를 사용하되, 조인을 통해 파일명을 가져오는 것이 좋습니다)
+        doc_stats = db.query(
+            CardRecord.filename,
+            func.count(CardRecord.id).label('count'),
+            func.sum(CardRecord.amount).label('total')
+        ).group_by(CardRecord.filename).all()
 
-    # 항목(태그)별 통계
-    tag_stats = db.query(
-        CardRecord.tag,
-        func.count(CardRecord.id).label('count'),
-        func.sum(CardRecord.amount).label('total')
-    ).group_by(CardRecord.tag).all()
+        # 항목(태그)별 통계
+        tag_stats = db.query(
+            CardRecord.tag,
+            func.count(CardRecord.id).label('count'),
+            func.sum(CardRecord.amount).label('total')
+        ).group_by(CardRecord.tag).all()
 
-    return {
-        "documents": [dict(row) for row in doc_stats],
-        "tags": [dict(row) for row in tag_stats]
-    }
+        # [오류 해결 포인트]: dict(row) 대신 row._asdict() 사용
+        return {
+            "documents": [row._asdict() for row in doc_stats],
+            "tags": [row._asdict() for row in tag_stats]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-# 2. 동일 가맹점 태그 일괄 변경 API
 @app.post("/tags/bulk-vendor-update")
 def bulk_update_vendor_tag(vendor: str = Form(...), new_tag: str = Form(...), db: Session = Depends(get_db)):
     try:
+        # 가맹점명이 정확히 일치하는 모든 내역의 태그를 변경
         updated_count = db.query(CardRecord).filter(CardRecord.vendor == vendor).update({"tag": new_tag})
         db.commit()
         return {"status": "success", "updated_count": updated_count}
