@@ -2,186 +2,178 @@ import React, { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 
 const API_URL = "http://192.168.0.241:3001";
-
-const EXPENSE_TAGS = {
-  기업업무추진비: { color: "#ff8787", icon: "🤝" },
-  기부금: { color: "#f06595", icon: "❤️" },
-  차량유지비: { color: "#845ef7", icon: "🚗" },
-  지급수수료: { color: "#5c7cfa", icon: "💸" },
-  소모품비: { color: "#22b8cf", icon: "📎" },
-  운반비: { color: "#20c997", icon: "🚚" },
-  광고선전비: { color: "#94d82d", icon: "📢" },
-  여비교통비: { color: "#fcc419", icon: "🚄" },
-  기타: { color: "#adb5bd", icon: "📦" },
+const TAG_COLORS = {
+  기업업무추진비: "#ff8787",
+  차량유지비: "#845ef7",
+  여비교통비: "#fcc419",
+  소모품비: "#22b8cf",
+  기타: "#adb5bd",
 };
 
 function App() {
   const [records, setRecords] = useState([]);
-  const [file, setFile] = useState(null);
-  const [filters, setFilters] = useState({ user: "All", filename: "All" });
+  const [stats, setStats] = useState({ documents: [], tags: [] });
+  const [searchTerm, setSearchTerm] = useState("");
   const [modified, setModified] = useState({});
 
   useEffect(() => {
-    loadData();
+    refresh();
   }, []);
 
-  const loadData = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/records?year=2025`);
-      setRecords(res.data || []);
-    } catch (e) {
-      console.error("데이터 로드 중 오류 발생");
-    }
+  const refresh = async () => {
+    const [resRec, resStat] = await Promise.all([
+      axios.get(`${API_URL}/records?year=2025`),
+      axios.get(`${API_URL}/stats?year=2025`),
+    ]);
+    setRecords(resRec.data);
+    setStats(resStat.data);
   };
 
-  const onUpload = async (overwrite = false) => {
-    if (!file) return alert("파일을 선택해주세요.");
+  // 동일 가맹점 태그 일괄 변경 함수
+  const handleBulkUpdate = async (vendor, newTag) => {
+    if (
+      !window.confirm(
+        `'${vendor}' 가맹점의 모든 내역을 '${newTag}'(으)로 변경할까요?`,
+      )
+    )
+      return;
     const fd = new FormData();
-    fd.append("file", file);
-    fd.append("overwrite", overwrite);
-
-    try {
-      const res = await axios.post(`${API_URL}/upload`, fd);
-      alert(`${res.data.count}건의 내역을 성공적으로 파싱했습니다.`);
-      loadData();
-    } catch (err) {
-      if (
-        err.response?.status === 409 &&
-        window.confirm("동일 파일명이 존재합니다. 덮어쓸까요?")
-      ) {
-        onUpload(true);
-      } else {
-        alert("업로드 실패: 파일을 확인해주세요.");
-      }
-    }
+    fd.append("vendor", vendor);
+    fd.append("new_tag", newTag);
+    await axios.post(`${API_URL}/tags/bulk-vendor-update`, fd);
+    refresh();
   };
 
-  const onSaveTags = async () => {
-    const payload = Object.entries(modified).map(([id, tag]) => ({
-      id: parseInt(id),
-      tag,
-    }));
-    if (!payload.length) return;
-    await axios.post(`${API_URL}/tags/bulk-save`, payload);
-    alert("태그가 저장되었습니다.");
-    setModified({});
-    loadData();
-  };
-
-  const filteredData = useMemo(() => {
-    return records.filter(
-      (r) =>
-        (filters.user === "All" || r.user === filters.user) &&
-        (filters.filename === "All" || r.filename === filters.filename),
-    );
-  }, [records, filters]);
+  const filtered = records.filter((r) =>
+    r.vendor.toLowerCase().includes(searchTerm.toLowerCase()),
+  );
 
   return (
-    <div style={{ padding: "20px", maxWidth: "1400px", margin: "0 auto" }}>
-      <h1>📂 종합소득세 필요경비 분류 시스템</h1>
+    <div style={{ padding: "20px", fontFamily: "Pretendard, sans-serif" }}>
+      <h2>📊 세무 결산 요약 (2025)</h2>
 
-      {/* 업로드 섹션 */}
-      <div
-        style={{
-          padding: "20px",
-          background: "#f1f3f5",
-          borderRadius: "8px",
-          marginBottom: "20px",
-        }}
-      >
-        <input type="file" onChange={(e) => setFile(e.target.files[0])} />
-        <button
-          onClick={() => onUpload(false)}
-          style={{ padding: "5px 15px", cursor: "pointer" }}
-        >
-          파일 분석 및 업로드
-        </button>
-      </div>
-
-      {/* 필터 및 저장 */}
-      <div
-        style={{
-          display: "flex",
-          gap: "10px",
-          marginBottom: "15px",
-          alignItems: "center",
-        }}
-      >
-        <select
-          onChange={(e) => setFilters({ ...filters, user: e.target.value })}
-        >
-          {["All", ...new Set(records.map((r) => r.user))].map((u) => (
-            <option key={u}>{u}</option>
-          ))}
-        </select>
-        <select
-          onChange={(e) => setFilters({ ...filters, filename: e.target.value })}
-        >
-          {["All", ...new Set(records.map((r) => r.filename))].map((f) => (
-            <option key={f}>{f}</option>
-          ))}
-        </select>
-        <button
-          onClick={onSaveTags}
+      {/* 1. 문서별/항목별 요약 섹션 */}
+      <div style={{ display: "flex", gap: "20px", marginBottom: "30px" }}>
+        <div
           style={{
-            marginLeft: "auto",
-            background: "#228be6",
-            color: "white",
-            border: "none",
-            padding: "8px 20px",
-            borderRadius: "4px",
+            flex: 1,
+            border: "1px solid #ddd",
+            padding: "15px",
+            borderRadius: "8px",
           }}
         >
-          태그 일괄 저장
-        </button>
+          <h4>📄 문서별 합계 (검증용)</h4>
+          {stats.documents.map((d) => (
+            <div
+              key={d.filename}
+              style={{
+                fontSize: "13px",
+                marginBottom: "5px",
+                display: "flex",
+                justifyContent: "space-between",
+              }}
+            >
+              <span>{d.filename.substring(0, 15)}...</span>
+              <strong>
+                {d.count}건 / {d.total.toLocaleString()}원
+              </strong>
+            </div>
+          ))}
+        </div>
+        <div
+          style={{
+            flex: 1,
+            border: "1px solid #ddd",
+            padding: "15px",
+            borderRadius: "8px",
+          }}
+        >
+          <h4>🏷️ 항목별 비율</h4>
+          {stats.tags.map((t) => (
+            <div key={t.tag} style={{ marginBottom: "10px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: "12px",
+                }}
+              >
+                <span>{t.tag}</span>
+                <span>{t.total.toLocaleString()}원</span>
+              </div>
+              <div
+                style={{
+                  width: "100%",
+                  height: "8px",
+                  background: "#eee",
+                  borderRadius: "4px",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${(t.total / stats.tags.reduce((a, b) => a + b.total, 0)) * 100}%`,
+                    height: "100%",
+                    background: TAG_COLORS[t.tag] || "#339af0",
+                    borderRadius: "4px",
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* 그리드 */}
-      <table
-        style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}
-      >
-        <thead>
-          <tr style={{ background: "#343a40", color: "white" }}>
-            <th style={{ padding: "10px" }}>문서명</th>
-            <th>이용자</th>
+      {/* 2. 가맹점 검색 및 리스트 */}
+      <div style={{ marginBottom: "15px", display: "flex", gap: "10px" }}>
+        <input
+          type="text"
+          placeholder="가맹점 내역 검색 (LIKE)..."
+          style={{ flex: 1, padding: "10px" }}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+
+      <table border="1" style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead style={{ background: "#f8f9fa" }}>
+          <tr>
             <th>날짜</th>
-            <th>가맹점/내역</th>
+            <th>가맹점명</th>
             <th>금액</th>
-            <th>경비분류(태그)</th>
+            <th>태그</th>
+            <th>기능</th>
           </tr>
         </thead>
         <tbody>
-          {filteredData.map((r) => (
-            <tr key={r.id} style={{ borderBottom: "1px solid #dee2e6" }}>
-              <td style={{ fontSize: "11px", color: "#868e96" }}>
-                {r.filename}
-              </td>
-              <td>{r.user}</td>
+          {filtered.map((r) => (
+            <tr key={r.id}>
               <td>{r.pay_date}</td>
-              <td style={{ textAlign: "left" }}>{r.vendor}</td>
-              <td style={{ textAlign: "right", fontWeight: "bold" }}>
+              <td style={{ fontWeight: "bold" }}>{r.vendor}</td>
+              <td style={{ textAlign: "right" }}>
                 {r.amount.toLocaleString()}원
               </td>
               <td>
                 <select
                   value={modified[r.id] || r.tag}
-                  style={{
-                    padding: "4px",
-                    borderRadius: "4px",
-                    backgroundColor:
-                      (EXPENSE_TAGS[modified[r.id] || r.tag]?.color || "#fff") +
-                      "22",
-                  }}
                   onChange={(e) =>
                     setModified({ ...modified, [r.id]: e.target.value })
                   }
                 >
-                  {Object.keys(EXPENSE_TAGS).map((t) => (
+                  {Object.keys(TAG_COLORS).map((t) => (
                     <option key={t} value={t}>
-                      {EXPENSE_TAGS[t].icon} {t}
+                      {t}
                     </option>
                   ))}
                 </select>
+              </td>
+              <td>
+                <button
+                  onClick={() =>
+                    handleBulkUpdate(r.vendor, modified[r.id] || r.tag)
+                  }
+                  style={{ fontSize: "11px", padding: "2px 5px" }}
+                >
+                  이 가맹점 일괄변경
+                </button>
               </td>
             </tr>
           ))}
@@ -190,5 +182,4 @@ function App() {
     </div>
   );
 }
-
 export default App;

@@ -6,6 +6,7 @@ import random, os
 from datetime import datetime
 from typing import List
 from .parser import parser_engine
+from sqlalchemy import func
 
 app = FastAPI()
 init_db()
@@ -92,3 +93,36 @@ async def bulk_save_tags(updates: List[dict], db: Session = Depends(get_db)):
         db.query(CardRecord).filter(CardRecord.id == item['id']).update({"tag": item['tag']})
     db.commit()
     return {"status": "ok"}
+
+# 1. 문서별 통계 및 항목별 통계 API
+@app.get("/stats")
+def get_stats(year: str = "2025", db: Session = Depends(get_db)):
+    # 문서별 통계
+    doc_stats = db.query(
+        CardRecord.filename,
+        func.count(CardRecord.id).label('count'),
+        func.sum(CardRecord.amount).label('total')
+    ).group_by(CardRecord.filename).all()
+
+    # 항목(태그)별 통계
+    tag_stats = db.query(
+        CardRecord.tag,
+        func.count(CardRecord.id).label('count'),
+        func.sum(CardRecord.amount).label('total')
+    ).group_by(CardRecord.tag).all()
+
+    return {
+        "documents": [dict(row) for row in doc_stats],
+        "tags": [dict(row) for row in tag_stats]
+    }
+
+# 2. 동일 가맹점 태그 일괄 변경 API
+@app.post("/tags/bulk-vendor-update")
+def bulk_update_vendor_tag(vendor: str = Form(...), new_tag: str = Form(...), db: Session = Depends(get_db)):
+    try:
+        updated_count = db.query(CardRecord).filter(CardRecord.vendor == vendor).update({"tag": new_tag})
+        db.commit()
+        return {"status": "success", "updated_count": updated_count}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
