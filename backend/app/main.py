@@ -99,10 +99,10 @@ async def bulk_save_tags(updates: List[dict], db: Session = Depends(get_db)):
 def get_stats(year: str = "2025", db: Session = Depends(get_db)):
     # 문서별 통계
     doc_stats = db.query(
-        CardRecord.filename,
+        CardRecord.file_id,
         func.count(CardRecord.id).label('count'),
         func.sum(CardRecord.amount).label('total')
-    ).group_by(CardRecord.filename).all()
+    ).group_by(CardRecord.file_id).all()
 
     # 항목(태그)별 통계
     tag_stats = db.query(
