@@ -135,25 +135,31 @@ function App() {
             <th>비용분류(태그)</th>
           </tr>
         </thead>
+        // 상세 내역 테이블의 렌더링 부분 (상단 생략)
         <tbody>
           {filtered.map((r) => (
-            <tr key={r.id}>
-              <td style={{ fontSize: "11px" }}>{r.filename}</td>
-              <td>{r.user}</td>
+            <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
+              <td style={{ fontSize: "11px", color: "#666" }}>{r.filename}</td>
+              <td style={{ fontWeight: "500" }}>{r.user}</td>
               <td>{r.pay_date}</td>
-              <td>{r.vendor}</td>
-              <td>{r.amount.toLocaleString()}원</td>
+              <td style={{ textAlign: "left", paddingLeft: "10px" }}>
+                {r.vendor}
+              </td>
+              <td style={{ textAlign: "right", fontWeight: "bold" }}>
+                {r.amount.toLocaleString()}원
+              </td>
               <td>
                 <select
-                  value={pendingTags[r.id] || r.tag}
-                  onChange={(e) => onTagChange(r.id, e.target.value)}
+                  value={modifiedTags[r.id] || r.tag}
                   style={{
                     backgroundColor:
-                      (EXPENSE_TAGS[pendingTags[r.id] || r.tag]?.color ||
+                      (EXPENSE_TAGS[modifiedTags[r.id] || r.tag]?.color ||
                         "#eee") + "33",
-                    padding: "4px",
-                    borderRadius: "4px",
+                    border: `1px solid ${EXPENSE_TAGS[modifiedTags[r.id] || r.tag]?.color || "#ddd"}`,
                   }}
+                  onChange={(e) =>
+                    setModifiedTags({ ...modifiedTags, [r.id]: e.target.value })
+                  }
                 >
                   {Object.keys(EXPENSE_TAGS).map((t) => (
                     <option key={t} value={t}>
