@@ -110,8 +110,6 @@ function App() {
         >
           <h3>📄 문서별 검증 (건수/금액)</h3>
           <div style={{ maxHeight: "150px", overflowY: "auto" }}>
-            // App.js 내 stats 렌더링 부분 보강 // stats.documents가 undefined인
-            경우를 대비해 옵셔널 체이닝(?.) 또는 기본값 사용
             {stats.documents?.length > 0 ? (
               stats.documents.map((d) => (
                 <div

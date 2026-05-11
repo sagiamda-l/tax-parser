@@ -100,11 +100,13 @@ def get_stats(year: str = "2025", db: Session = Depends(get_db)):
         # 1. 문서별 통계 (file_id 또는 filename 사용)
         # 사용자님이 CardRecord.file_id로 변경하셨으므로 이를 반영합니다.
         # 만약 화면에 파일명을 표시해야 한다면, 저장 시 filename 컬럼도 모델에 정의되어 있어야 합니다.
-        doc_stats = db.query(
-            CardRecord.file_id,  # 또는 CardRecord.filename
+        #
+        doc_stats = db.query(CardRecord, UploadFileRecord).filter(CardRecord.file_id == UploadFileRecord.id)
+        doc_stats = doc_stats.query(
+            UploadFileRecord.filename,  # 또는 CardRecord.filename
             func.count(CardRecord.id).label('count'),
             func.sum(CardRecord.amount).label('total')
-        ).group_by(CardRecord.file_id).all()
+        ).group_by(UploadFileRecord.id, UploadFileRecord.filename).all()
 
         # 2. 항목(태그)별 통계
         tag_stats = db.query(
