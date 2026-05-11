@@ -97,27 +97,42 @@ async def bulk_save_tags(updates: List[dict], db: Session = Depends(get_db)):
 @app.get("/stats")
 def get_stats(year: str = "2025", db: Session = Depends(get_db)):
     try:
-        # 문서별 통계: filename 필드를 기준으로 그룹화
-        # (모델에 filename이 없다면 file_id를 사용하되, 조인을 통해 파일명을 가져오는 것이 좋습니다)
+        # 1. 문서별 통계 (file_id 또는 filename 사용)
+        # 사용자님이 CardRecord.file_id로 변경하셨으므로 이를 반영합니다.
+        # 만약 화면에 파일명을 표시해야 한다면, 저장 시 filename 컬럼도 모델에 정의되어 있어야 합니다.
         doc_stats = db.query(
-            CardRecord.filename,
+            CardRecord.file_id,  # 또는 CardRecord.filename
             func.count(CardRecord.id).label('count'),
             func.sum(CardRecord.amount).label('total')
-        ).group_by(CardRecord.filename).all()
+        ).group_by(CardRecord.file_id).all()
 
-        # 항목(태그)별 통계
+        # 2. 항목(태그)별 통계
         tag_stats = db.query(
             CardRecord.tag,
             func.count(CardRecord.id).label('count'),
             func.sum(CardRecord.amount).label('total')
         ).group_by(CardRecord.tag).all()
 
-        # [오류 해결 포인트]: dict(row) 대신 row._asdict() 사용
+        # [핵심 수정]: ValueError 방지를 위한 명시적 매핑
         return {
-            "documents": [row._asdict() for row in doc_stats],
-            "tags": [row._asdict() for row in tag_stats]
+            "documents": [
+                {
+                    "filename": str(row[0]),  # 첫 번째 컬럼 (file_id 혹은 filename)
+                    "count": int(row[1]),     # 두 번째 컬럼 (count)
+                    "total": float(row[2] or 0) # 세 번째 컬럼 (sum), None일 경우 0 처리
+                } for row in doc_stats
+            ],
+            "tags": [
+                {
+                    "tag": str(row[0]), 
+                    "count": int(row[1]), 
+                    "total": float(row[2] or 0)
+                } for row in tag_stats
+            ]
         }
     except Exception as e:
+        # 서버 콘솔에 구체적인 에러를 출력하여 디버깅을 돕습니다.
+        print(f"Stats API Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/tags/bulk-vendor-update")

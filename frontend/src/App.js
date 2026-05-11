@@ -110,23 +110,31 @@ function App() {
         >
           <h3>📄 문서별 검증 (건수/금액)</h3>
           <div style={{ maxHeight: "150px", overflowY: "auto" }}>
-            {stats.documents.map((d) => (
-              <div
-                key={d.filename}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  fontSize: "13px",
-                  borderBottom: "1px solid #eee",
-                  padding: "4px 0",
-                }}
-              >
-                <span>{d.filename}</span>
-                <strong>
-                  {d.count}건 / {d.total?.toLocaleString()}원
-                </strong>
+            // App.js 내 stats 렌더링 부분 보강 // stats.documents가 undefined인
+            경우를 대비해 옵셔널 체이닝(?.) 또는 기본값 사용
+            {stats.documents?.length > 0 ? (
+              stats.documents.map((d) => (
+                <div
+                  key={d.filename}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "13px",
+                    borderBottom: "1px solid #eee",
+                    padding: "4px 0",
+                  }}
+                >
+                  <span>{d.filename}</span>
+                  <strong>
+                    {d.count}건 / {Math.floor(d.total).toLocaleString()}원
+                  </strong>
+                </div>
+              ))
+            ) : (
+              <div style={{ fontSize: "12px", color: "#999" }}>
+                표시할 문서 데이터가 없습니다.
               </div>
-            ))}
+            )}
           </div>
         </div>
         <div
