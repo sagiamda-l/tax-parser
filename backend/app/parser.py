@@ -16,7 +16,7 @@ class TaxParser:
             "광고선전비": ["구글광고", "페이스북광고", "현수막", "광고"],
         }
         # 취소 여부를 판단할 컬럼명과 키워드
-        self.status_cols = ['구분', '상태', '처리구분', '승인구분']
+        self.status_cols = ['구분', '상태', '처리구분', '승인구분', '취소여부']
         self.cancel_keywords = ['취소', '승인취소', '매출취소', '부분취소']
 
     def extract_customer(self, filename):
@@ -58,7 +58,7 @@ class TaxParser:
 
         # 3. 카드사 통합 컬럼 매핑
         col_map = {
-            'date': ['이용일자', '거래일자', '일시', '이용일시', '승인일자', '결제일시', '거래일'],
+            'date': ['이용일자', '거래일자', '일시', '이용일시', '승인일자', '결제일시', '거래일', '이용일', '매출일자'],
             'amount': ['이용금액', '금액', '결제금액', '국내이용금액', '승인금액', '거래금액', '사용금액'],
             'vendor': ['가맹점명', '가맹점', '내용', '상호명', '적요', '결제처', '이용처'],
             'status': self.status_cols # 취소 상태 컬럼 탐색
@@ -71,8 +71,6 @@ class TaxParser:
                 if match:
                     found[target] = match[0]
                     break
-        
-        user_col = next((c for c in df.columns if any(u in c for u in ['이용자', '사용자', '이름'])), None)
 
         results = []
         for _, row in df.iterrows():
