@@ -16,12 +16,15 @@ class TaxParser:
             "광고선전비": ["구글광고", "페이스북광고", "현수막", "광고"],
         }
         # 취소 여부를 판단할 컬럼명과 키워드
-        self.status_cols = ['구분', '상태', '처리구분', '승인구분', '취소여부']
         self.cancel_keywords = ['취소', '승인취소', '매출취소', '부분취소']
 
     def extract_customer(self, filename):
-        match = re.search(r'^([^\(]+)\(', filename)
-        return match.group(1).strip() if match else "미지정"
+        # 괄호 '(' 가 나오기 전까지의 모든 문자를 가져오되, 앞뒤 공백 제거
+        match = re.search(r'^([^(\s]+)', filename)
+        if match:
+            customer = match.group(1).strip()
+            return customer.split('(')[0].strip()
+        return "미지정"
 
     def suggest_tag(self, vendor):
         for tag, keywords in self.tag_keywords.items():
@@ -61,7 +64,7 @@ class TaxParser:
             'date': ['이용일자', '거래일자', '일시', '이용일시', '승인일자', '결제일시', '거래일', '이용일', '매출일자'],
             'amount': ['이용금액', '금액', '결제금액', '국내이용금액', '승인금액', '거래금액', '사용금액'],
             'vendor': ['가맹점명', '가맹점', '내용', '상호명', '적요', '결제처', '이용처'],
-            'status': self.status_cols # 취소 상태 컬럼 탐색
+            'status': ['구분', '상태', '처리구분', '승인구분', '취소여부']
         }
 
         found = {}
@@ -75,10 +78,9 @@ class TaxParser:
         results = []
         for _, row in df.iterrows():
             # [수정] 취소 여부 확인
-            if found['status']:
-                status_val = str(row.get(found['status'], ''))
-                if any(ck in status_val for ck in self.cancel_keywords):
-                    continue # 취소 건 스킵
+            status_val = str(row.get(found.get('status', ''), '')).strip()
+            if any(ck in status_val for ck in self.cancel_keywords):
+                continue # 취소 건 스킵
 
             vendor = str(row.get(found.get('vendor', ''), '')).strip()
             if not vendor or vendor in ['nan', 'None', '합계', '소계']: continue
