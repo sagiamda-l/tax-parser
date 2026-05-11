@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import List
 from .parser import parser_engine
 from sqlalchemy import func
-from .parser import TaxParser
 
 app = FastAPI()
 init_db()
@@ -32,7 +31,7 @@ async def handle_upload(
     overwrite: str = Form("false"),
     db: Session = Depends(get_db)
 ):
-    customer_name = TaxParser.extract_customer(file.filename)
+    customer_name = parser_engine.extract_customer(file.filename)
     is_overwrite = overwrite.lower() == "true"
     existing = db.query(UploadFileRecord).filter(UploadFileRecord.filename == file.filename).first()
     
