@@ -15,7 +15,7 @@ class UploadFileRecord(Base):
     id = Column(String, primary_key=True)
     filename = Column(String, unique=True)
     customer = Column(String)  # 이용자명 (추가)
-    upload_date = Column(DateTime, default=datetime.datetime.utcnow)
+    upload_date = Column(DateTime, default=datetime.now)
     target_year = Column(String)
 
     # 상위 파일 삭제 시 하위 내역 자동 삭제 (Cascade)
