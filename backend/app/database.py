@@ -14,7 +14,8 @@ class UploadFileRecord(Base):
     # PK 규칙: YYYYMMDDHHMMSSmmm + Random 5
     id = Column(String, primary_key=True)
     filename = Column(String, unique=True)
-    upload_time = Column(DateTime, default=datetime.now)
+    customer = Column(String)  # 이용자명 (추가)
+    upload_date = Column(DateTime, default=datetime.datetime.utcnow)
     target_year = Column(String)
 
     # 상위 파일 삭제 시 하위 내역 자동 삭제 (Cascade)
@@ -27,7 +28,6 @@ class CardRecord(Base):
     pay_date = Column(String)
     amount = Column(Float)
     vendor = Column(String)
-    user = Column(String)      # 실사용자 정보
     tag = Column(String, default="기타") # 9가지 경비 항목 중 하나
     
     file_info = relationship("UploadFileRecord", back_populates="cards")

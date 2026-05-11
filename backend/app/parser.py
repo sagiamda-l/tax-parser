@@ -1,7 +1,6 @@
 import pandas as pd
 import pdfplumber
-import os
-import re
+import os, re
 
 class TaxParser:
     def __init__(self):
@@ -16,6 +15,13 @@ class TaxParser:
             "운반비": ["택배", "화물", "퀵서비스", "배송"],
             "광고선전비": ["구글광고", "페이스북광고", "현수막", "광고"],
         }
+        # 취소 여부를 판단할 컬럼명과 키워드
+        self.status_cols = ['구분', '상태', '처리구분', '승인구분']
+        self.cancel_keywords = ['취소', '승인취소', '매출취소', '부분취소']
+
+    def extract_customer(self, filename):
+        match = re.search(r'^([^\(]+)\(', filename)
+        return match.group(1).strip() if match else "미지정"
 
     def suggest_tag(self, vendor):
         for tag, keywords in self.tag_keywords.items():
@@ -54,7 +60,8 @@ class TaxParser:
         col_map = {
             'date': ['이용일자', '거래일자', '일시', '이용일시', '승인일자', '결제일시', '거래일'],
             'amount': ['이용금액', '금액', '결제금액', '국내이용금액', '승인금액', '거래금액', '사용금액'],
-            'vendor': ['가맹점명', '가맹점', '내용', '상호명', '적요', '결제처', '이용처']
+            'vendor': ['가맹점명', '가맹점', '내용', '상호명', '적요', '결제처', '이용처'],
+            'status': self.status_cols # 취소 상태 컬럼 탐색
         }
 
         found = {}
@@ -69,6 +76,12 @@ class TaxParser:
 
         results = []
         for _, row in df.iterrows():
+            # [수정] 취소 여부 확인
+            if found['status']:
+                status_val = str(row.get(found['status'], ''))
+                if any(ck in status_val for ck in self.cancel_keywords):
+                    continue # 취소 건 스킵
+
             vendor = str(row.get(found.get('vendor', ''), '')).strip()
             if not vendor or vendor in ['nan', 'None', '합계', '소계']: continue
             
@@ -77,7 +90,7 @@ class TaxParser:
             amt_digit = re.sub(r'[^0-9.-]', '', raw_amt)
             amt = float(amt_digit) if amt_digit else 0
             
-            if amt == 0: continue
+            if amt <= 0: continue
 
             # 날짜 정제
             raw_date = str(row.get(found.get('date', ''), ''))
@@ -88,7 +101,6 @@ class TaxParser:
                 "pay_date": final_date,
                 "amount": amt,
                 "vendor": vendor,
-                "user": str(row.get(user_col, '이성렬')) if user_col else "이성렬",
                 "tag": self.suggest_tag(vendor)
             })
         return results

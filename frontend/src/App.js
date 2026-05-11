@@ -20,7 +20,7 @@ function App() {
   const [stats, setStats] = useState({ documents: [], tags: [] });
   const [file, setFile] = useState(null);
   const [searchTerm, setSearchTerm] = useState(""); // 가맹점 검색용
-  const [filters, setFilters] = useState({ user: "All", filename: "All" });
+  const [filters, setFilters] = useState({ customer: "All", filename: "All" });
   const [modified, setModified] = useState({});
 
   useEffect(() => {
@@ -87,7 +87,7 @@ function App() {
   const filteredData = useMemo(() => {
     return records.filter(
       (r) =>
-        (filters.user === "All" || r.user === filters.user) &&
+        (filters.customer === "All" || r.customer === filters.customer) &&
         (filters.filename === "All" || r.filename === filters.filename) &&
         r.vendor.toLowerCase().includes(searchTerm.toLowerCase()), // LIKE 검색 기능
     );
@@ -122,7 +122,9 @@ function App() {
                     padding: "4px 0",
                   }}
                 >
-                  <span>{d.filename}</span>
+                  <span>
+                    [{d.customer}] {d.filename}
+                  </span>
                   <strong>
                     {d.count}건 / {Math.floor(d.total).toLocaleString()}원
                   </strong>
@@ -206,9 +208,11 @@ function App() {
         </div>
         <div style={{ display: "flex", gap: "10px" }}>
           <select
-            onChange={(e) => setFilters({ ...filters, user: e.target.value })}
+            onChange={(e) =>
+              setFilters({ ...filters, customer: e.target.value })
+            }
           >
-            {["All", ...new Set(records.map((r) => r.user))].map((u) => (
+            {["All", ...new Set(records.map((r) => r.customer))].map((u) => (
               <option key={u}>{u}</option>
             ))}
           </select>

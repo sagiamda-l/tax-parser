@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import List
 from .parser import parser_engine
 from sqlalchemy import func
+from .parser import TaxParser
 
 app = FastAPI()
 init_db()
@@ -31,6 +32,7 @@ async def handle_upload(
     overwrite: str = Form("false"),
     db: Session = Depends(get_db)
 ):
+    customer_name = TaxParser.extract_customer(file.filename)
     is_overwrite = overwrite.lower() == "true"
     existing = db.query(UploadFileRecord).filter(UploadFileRecord.filename == file.filename).first()
     
@@ -51,7 +53,7 @@ async def handle_upload(
         
         # 신규 PK 생성
         new_pk = datetime.now().strftime('%Y%m%d%H%M%S%f')[:-3] + str(random.randint(10000, 99999))
-        new_file = UploadFileRecord(id=new_pk, filename=file.filename, target_year=target_year)
+        new_file = UploadFileRecord(id=new_pk, filename=file.filename, customer=customer_name, target_year=target_year)
         db.add(new_file)
 
         # 파싱 결과 DB 반영
@@ -61,7 +63,6 @@ async def handle_upload(
                 pay_date=item['pay_date'],
                 amount=item['amount'],
                 vendor=item['vendor'],
-                user=item['user'],
                 tag=item['tag']
             )
             db.add(new_card)
@@ -103,10 +104,11 @@ def get_stats(year: str = "2025", db: Session = Depends(get_db)):
         #
         doc_stats = db.query(
             UploadFileRecord.filename,
+            UploadFileRecord.customer,
             func.count(CardRecord.id).label('count'),
             func.sum(CardRecord.amount).label('total')
             ).join(CardRecord, CardRecord.file_id == UploadFileRecord.id
-                   ).group_by(UploadFileRecord.id, UploadFileRecord.filename).all()
+                   ).group_by(UploadFileRecord.id, UploadFileRecord.filename, UploadFileRecord.customer).all()
 
         # 2. 항목(태그)별 통계
         tag_stats = db.query(
@@ -120,8 +122,9 @@ def get_stats(year: str = "2025", db: Session = Depends(get_db)):
             "documents": [
                 {
                     "filename": str(row[0]),  # 첫 번째 컬럼 (file_id 혹은 filename)
-                    "count": int(row[1]),     # 두 번째 컬럼 (count)
-                    "total": float(row[2] or 0) # 세 번째 컬럼 (sum), None일 경우 0 처리
+                    "customer": str(row[1]),  # 두 번째 컬럼 (customer)
+                    "count": int(row[2]),     # 세 번째 컬럼 (count)
+                    "total": float(row[3] or 0) # 네 번째 컬럼 (sum), None일 경우 0 처리
                 } for row in doc_stats
             ],
             "tags": [
