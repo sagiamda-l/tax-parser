@@ -92,13 +92,6 @@ def get_records(year: str, db: Session = Depends(get_db)):
         output.append(card_dict)
     return output
 
-@app.post("/tags/bulk-save")
-async def bulk_save_tags(updates: List[dict], db: Session = Depends(get_db)):
-    for item in updates:
-        db.query(CardRecord).filter(CardRecord.id == item['id']).update({"tag": item['tag']})
-    db.commit()
-    return {"status": "ok"}
-
 @app.get("/stats")
 def get_stats(year: int = None, db: Session = Depends(get_db)):
     try:
@@ -141,13 +134,19 @@ def get_stats(year: int = None, db: Session = Depends(get_db)):
         print(f"Stats API Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/tags/bulk-vendor-update")
-def bulk_update_vendor_tag(vendor: str = Form(...), new_tag: str = Form(...), db: Session = Depends(get_db)):
-    try:
-        # 가맹점명이 정확히 일치하는 모든 내역의 태그를 변경
-        updated_count = db.query(CardRecord).filter(CardRecord.vendor == vendor).update({"tag": new_tag})
-        db.commit()
-        return {"status": "success", "updated_count": updated_count}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+@app.post("/update-tags")
+def update_tags(updates: list[dict], db: Session = Depends(get_db)):
+    # [{id: 1, tag: '소모품비'}, ...] 형식의 리스트 수신
+    for item in updates:
+        db.query(CardRecord).filter(CardRecord.id == item['id'])\
+          .update({"tag": item['tag']})
+    db.commit()
+    return {"message": "Tags updated"}
+
+@app.post("/bulk-vendor-update")
+def bulk_vendor_update(data: dict, db: Session = Depends(get_db)):
+    # {vendor: '가맹점명', tag: '변경할태그'} 수신
+    db.query(CardRecord).filter(CardRecord.vendor == data['vendor'])\
+      .update({"tag": data['tag']})
+    db.commit()
+    return {"message": f"All {data['vendor']} updated to {data['tag']}"}
