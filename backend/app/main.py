@@ -9,8 +9,11 @@ from typing import List
 from .parser import parser_engine
 from sqlalchemy import func
 import pandas as pd
-from reportlab.pdfgen import canvas # PDF용
 from io import BytesIO
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 app = FastAPI()
 init_db()
@@ -165,11 +168,57 @@ def recommend_tag(vendor: str, db: Session = Depends(get_db)):
         .order_by(desc('cnt')).first()
     return {"tag": result[0] if result else "기타"}
 
-# 3. 엑셀 다운로드 (Filtered Data)
+# 1. 엑셀 내보내기 (데이터 정제 및 헤더 한글화)
 @app.post("/export/excel")
 async def export_excel(data: list[dict]):
     df = pd.DataFrame(data)
+    
+    # 불필요 항목 제거 및 컬럼명 변경
+    columns_map = {
+        'pay_date': '결제일자',
+        'customer': '이용자',
+        'vendor': '가맹점명',
+        'amount': '금액',
+        'tag': '지출태그',
+        'filename': '원본파일명'
+    }
+    
+    # 존재하는 컬럼만 필터링 및 이름 변경
+    export_df = df[[c for c in columns_map.keys() if c in df.columns]].rename(columns=columns_map)
+    
+    # 날짜 포맷 통일 (YYYY-MM-DD)
+    if '결제일자' in export_df.columns:
+        export_df['결제일자'] = pd.to_datetime(export_df['결제일자']).dt.strftime('%Y-%m-%d')
+
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='지출내역')
-    return StreamingResponse(BytesIO(output.getvalue()), media_type="application/vnd.ms-excel", headers={"Content-Disposition": "attachment; filename=tax_report.xlsx"})
+        export_df.to_excel(writer, index=False, sheet_name='지출내역_리포트')
+    
+    return StreamingResponse(
+        BytesIO(output.getvalue()), 
+        media_type="application/vnd.ms-excel", 
+        headers={"Content-Disposition": "attachment; filename=tax_report.xlsx"}
+    )
+
+# 2. PDF 종합 보고서 생성 (구조화된 리포트)
+@app.post("/export/pdf")
+async def export_pdf(data: dict):
+    # data 구조: { "summary": {...}, "records": [...] }
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+
+    # (주의: 한글 폰트 설정이 필요합니다. 여기서는 구조적 예시만 작성합니다)
+    p.setFont("Helvetica-Bold", 20)
+    p.drawString(50, height - 50, "Tax Settlement Report")
+    
+    p.setFont("Helvetica", 12)
+    p.drawString(50, height - 80, f"Total Amount: {data['totalAmount']:,} KRW")
+    p.drawString(50, height - 100, f"Total Count: {len(data['records'])} cases")
+    
+    # 상세 내역 테이블 형태로 드로잉 (생략 - 실제 구현 시 루프 사용)
+    p.showPage()
+    p.save()
+    
+    buffer.seek(0)
+    return StreamingResponse(buffer, media_type="application/pdf")
