@@ -76,14 +76,16 @@ async def handle_upload(
 @app.get("/records")
 def get_records(year: str, db: Session = Depends(get_db)):
     # 파일 정보와 JOIN하여 문서명(filename)까지 한 번에 가져옴
-    results = db.query(CardRecord, UploadFileRecord.filename).join(
+    results = db.query(CardRecord, UploadFileRecord.filename, UploadFileRecord.customer, UploadFileRecord.target_year).join(
         UploadFileRecord, CardRecord.file_id == UploadFileRecord.id
     ).filter(UploadFileRecord.target_year == year).all()
     
     output = []
-    for card, fname in results:
+    for card, fname, customer, target_year in results:
         card_dict = {c.name: getattr(card, c.name) for c in card.__table__.columns}
         card_dict['filename'] = fname
+        card_dict['customer'] = customer
+        card_dict['target_year'] = target_year
         output.append(card_dict)
     return output
 
@@ -95,43 +97,40 @@ async def bulk_save_tags(updates: List[dict], db: Session = Depends(get_db)):
     return {"status": "ok"}
 
 @app.get("/stats")
-def get_stats(year: str = "2025", db: Session = Depends(get_db)):
+def get_stats(year: int = None, db: Session = Depends(get_db)):
     try:
-        # 1. 문서별 통계 (file_id 또는 filename 사용)
-        # 사용자님이 CardRecord.file_id로 변경하셨으므로 이를 반영합니다.
-        # 만약 화면에 파일명을 표시해야 한다면, 저장 시 filename 컬럼도 모델에 정의되어 있어야 합니다.
-        #
-        doc_stats = db.query(
+        # 1. 문서별 검증 (이용자명 포함)
+        doc_query = db.query(
             UploadFileRecord.filename,
             UploadFileRecord.customer,
+            UploadFileRecord.target_year,
             func.count(CardRecord.id).label('count'),
             func.sum(CardRecord.amount).label('total')
-            ).join(CardRecord, CardRecord.file_id == UploadFileRecord.id
-                   ).group_by(UploadFileRecord.id, UploadFileRecord.filename, UploadFileRecord.customer).all()
+        ).join(CardRecord, CardRecord.file_id == UploadFileRecord.id)
+        
+        if year:
+            doc_query = doc_query.filter(UploadFileRecord.target_year == year)
+        
+        doc_stats = doc_query.group_by(UploadFileRecord.id).all()
 
-        # 2. 항목(태그)별 통계
-        tag_stats = db.query(
+        # 2. 항목(태그)별 지출 비율
+        tag_query = db.query(
             CardRecord.tag,
-            func.count(CardRecord.id).label('count'),
             func.sum(CardRecord.amount).label('total')
-        ).group_by(CardRecord.tag).all()
+        ).join(UploadFileRecord, CardRecord.file_id == UploadFileRecord.id)
+        
+        if year:
+            tag_query = tag_query.filter(UploadFileRecord.target_year == year)
+            
+        tag_stats = tag_query.group_by(CardRecord.tag).all()
 
-        # [핵심 수정]: ValueError 방지를 위한 명시적 매핑
         return {
             "documents": [
-                {
-                    "filename": str(row[0]),  # 첫 번째 컬럼 (file_id 혹은 filename)
-                    "customer": str(row[1]),  # 두 번째 컬럼 (customer)
-                    "count": int(row[2]),     # 세 번째 컬럼 (count)
-                    "total": float(row[3] or 0) # 네 번째 컬럼 (sum), None일 경우 0 처리
-                } for row in doc_stats
+                {"filename": r[0], "customer": r[1], "target_year": r[2], "count": r[3], "total": float(r[4] or 0)} 
+                for r in doc_stats
             ],
             "tags": [
-                {
-                    "tag": str(row[0]), 
-                    "count": int(row[1]), 
-                    "total": float(row[2] or 0)
-                } for row in tag_stats
+                {"tag": r[0], "total": float(r[1] or 0)} for r in tag_stats
             ]
         }
     except Exception as e:
