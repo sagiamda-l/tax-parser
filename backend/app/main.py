@@ -27,7 +27,7 @@ def get_db():
 @app.post("/upload")
 async def handle_upload(
     file: UploadFile = File(...), 
-    target_year: str = Form("2025"),
+    target_year: int = Form(...),
     overwrite: str = Form("false"),
     db: Session = Depends(get_db)
 ):
@@ -67,6 +67,9 @@ async def handle_upload(
             db.add(new_card)
         
         db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)

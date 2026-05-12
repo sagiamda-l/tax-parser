@@ -15,11 +15,11 @@ class UploadFileRecord(Base):
     id = Column(String, primary_key=True)
     filename = Column(String, unique=True)
     customer = Column(String)  # 이용자명 (추가)
+    target_year = Column(Integer)
     upload_date = Column(DateTime, default=datetime.now)
-    target_year = Column(String)
 
     # 상위 파일 삭제 시 하위 내역 자동 삭제 (Cascade)
-    cards = relationship("CardRecord", back_populates="file_info", cascade="all, delete-orphan")
+    records = relationship("CardRecord", back_populates="file_info", cascade="all, delete-orphan")
 
 class CardRecord(Base):
     __tablename__ = "card_records"
