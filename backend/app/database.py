@@ -19,7 +19,7 @@ class UploadFileRecord(Base):
     upload_date = Column(DateTime, default=datetime.now)
 
     # 상위 파일 삭제 시 하위 내역 자동 삭제 (Cascade)
-    records = relationship("CardRecord", back_populates="file_info", cascade="all, delete-orphan")
+    cards = relationship("CardRecord", back_populates="file_info", cascade="all, delete-orphan")
 
 class CardRecord(Base):
     __tablename__ = "card_records"
