@@ -15,8 +15,6 @@ class TaxParser:
             "운반비": ["택배", "화물", "퀵서비스", "배송"],
             "광고선전비": ["구글광고", "페이스북광고", "현수막", "광고"],
         }
-        # 취소 여부를 판단할 컬럼명과 키워드
-        self.cancel_keywords = ['취소', '승인취소', '매출취소', '부분취소']
 
     def extract_customer(self, filename):
         # 괄호 '(' 가 나오기 전까지의 모든 문자를 가져오되, 앞뒤 공백 제거
@@ -59,6 +57,13 @@ class TaxParser:
         df = pd.read_excel(file_path, header=header_row)
         df.columns = [str(c).replace(" ", "").replace("\n", "") for c in df.columns]
 
+        # 2. 상태(취소) 확인을 위한 컬럼 및 키워드 정의
+        status_aliases = ['취소여부', '상태', '구분', '처리구분', '승인상태', '결제상태']
+        cancel_keywords = ['취소', '승인취소', '매출취소', '환불', 'CANC']
+
+        # 실제 엑셀에서 취소 관련 컬럼 찾기
+        status_col = next((c for c in df.columns if any(alias in c for alias in status_aliases)), None)
+
         # 3. 카드사 통합 컬럼 매핑
         col_map = {
             'date': ['이용일자', '거래일자', '일시', '이용일시', '승인일자', '결제일시', '거래일', '이용일', '매출일자'],
@@ -77,10 +82,11 @@ class TaxParser:
 
         results = []
         for _, row in df.iterrows():
-            # [수정] 취소 여부 확인
-            status_val = str(row.get(found.get('status', ''), '')).strip()
-            if any(ck in status_val for ck in self.cancel_keywords):
-                continue # 취소 건 스킵
+            # [필터 1] 취소 상태 명시적 체크 (토스카드 핵심)
+            if status_col:
+                val = str(row.get(status_col, '')).strip()
+                if any(ck in val for ck in cancel_keywords):
+                    continue # 리스트에 담지 않고 스킵
 
             vendor = str(row.get(found.get('vendor', ''), '')).strip()
             if not vendor or vendor in ['nan', 'None', '합계', '소계']: continue

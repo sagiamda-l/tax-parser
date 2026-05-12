@@ -84,6 +84,11 @@ function App() {
     loadAll();
   };
 
+  const customerList = useMemo(() => {
+    const names = stats.documents.map((d) => d.customer).filter(Boolean);
+    return ["All", ...new Set(names)];
+  }, [stats.documents]);
+
   const filteredData = useMemo(() => {
     return records.filter(
       (r) =>
