@@ -1,9 +1,20 @@
 import React, { useState, useEffect, useMemo } from "react";
 import axios from "axios";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  CartesianGrid,
+  Cell,
+} from "recharts";
 
 const API_URL = "http://192.168.0.241:3001";
 
-// 태그 설정 (아이콘 포함)
+// 지출 분류 정의
 const EXPENSE_TAGS = {
   기업업무추진비: { color: "#ff8787", icon: "🤝" },
   기부금: { color: "#f06595", icon: "❤️" },
@@ -17,10 +28,12 @@ const EXPENSE_TAGS = {
 };
 
 function App() {
+  // --- 상태 관리 ---
   const [records, setRecords] = useState([]);
   const [stats, setStats] = useState({ documents: [], tags: [] });
   const [modified, setModified] = useState({}); // { id: 'new_tag' }
   const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({
     year: new Date().getFullYear(),
     customer: "All",
@@ -28,23 +41,34 @@ function App() {
   });
   const [searchTerm, setSearchTerm] = useState("");
 
+  // --- 데이터 로드 ---
   useEffect(() => {
     loadData();
   }, [filters.year]);
 
   const loadData = async () => {
-    const [resRec, resStat] = await Promise.all([
-      axios.get(`${API_URL}/records?year=${filters.year}`),
-      axios.get(`${API_URL}/stats?year=${filters.year}`),
-    ]);
-    setRecords(resRec.data);
-    setStats(resStat.data);
-    setModified({}); // 로드 시 수정사항 초기화
+    setLoading(true);
+    try {
+      const [resRec, resStat] = await Promise.all([
+        axios.get(`${API_URL}/records?year=${filters.year}`),
+        axios.get(`${API_URL}/stats?year=${filters.year}`),
+      ]);
+      setRecords(resRec.data);
+      setStats(resStat.data);
+      setModified({});
+    } catch (err) {
+      console.error("데이터 로드 실패", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // 필터 목록 계산
+  // --- 필터 및 데이터 가공 (useMemo) ---
   const customerList = useMemo(
-    () => ["All", ...new Set(records.map((r) => r.customer))].filter(Boolean),
+    () =>
+      ["All", ...new Set(records.map((r) => r.customer))]
+        .filter(Boolean)
+        .sort(),
     [records],
   );
   const filenameList = useMemo(
@@ -62,7 +86,6 @@ function App() {
     );
   }, [stats.documents]);
 
-  // 필터링 로직
   const filteredData = useMemo(
     () =>
       records.filter(
@@ -76,14 +99,52 @@ function App() {
 
   const totalAmount = filteredData.reduce((sum, r) => sum + r.amount, 0);
 
-  // 작업 함수
+  // [수정] 지출 비율 계산 (현재 필터링된 데이터 기준 분모 설정)
+  const tagStats = useMemo(() => {
+    const counts = {};
+    filteredData.forEach((r) => {
+      const tag = modified[r.id] || r.tag;
+      counts[tag] = (counts[tag] || 0) + r.amount;
+    });
+    return Object.entries(counts)
+      .map(([tag, total]) => ({
+        tag,
+        total,
+        percentage: totalAmount > 0 ? (total / totalAmount) * 100 : 0,
+        count: filteredData.filter((f) => (modified[f.id] || f.tag) === tag)
+          .length,
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [filteredData, totalAmount, modified]);
+
+  // [신규] 월별 지출 추이 데이터
+  const monthlyTrend = useMemo(() => {
+    const months = {};
+    filteredData.forEach((r) => {
+      const m = r.pay_date.substring(0, 7);
+      if (!months[m]) months[m] = { month: m };
+      const tag = modified[r.id] || r.tag;
+      months[m][tag] = (months[m][tag] || 0) + r.amount;
+    });
+    return Object.values(months).sort((a, b) => a.month.localeCompare(b.month));
+  }, [filteredData, modified]);
+
+  // --- 주요 기능 로직 ---
   const onUpload = async () => {
-    if (!file) return;
+    if (!file) return alert("파일을 선택해주세요.");
     const formData = new FormData();
     formData.append("file", file);
     formData.append("target_year", filters.year);
-    await axios.post(`${API_URL}/upload`, formData);
-    loadData();
+    try {
+      setLoading(true);
+      await axios.post(`${API_URL}/upload`, formData);
+      alert("업로드 완료!");
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.detail || "업로드 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onSaveAll = async () => {
@@ -91,223 +152,256 @@ function App() {
       id: parseInt(id),
       tag,
     }));
-    if (updates.length === 0) return;
+    if (updates.length === 0) return alert("변경사항이 없습니다.");
     await axios.post(`${API_URL}/update-tags`, updates);
-    alert("변경사항이 저장되었습니다.");
+    alert("모든 변경사항이 저장되었습니다.");
     loadData();
   };
 
   const onBulkVendorUpdate = async (vendor, tag) => {
-    if (!window.confirm(`모든 [${vendor}] 항목을 [${tag}]으(로) 변경할까요?`))
+    if (
+      !window.confirm(`[${vendor}]의 모든 항목을 [${tag}]로 변경하시겠습니까?`)
+    )
       return;
     await axios.post(`${API_URL}/bulk-vendor-update`, { vendor, tag });
     loadData();
   };
 
+  const exportExcel = async () => {
+    const res = await axios.post(`${API_URL}/export/excel`, filteredData, {
+      responseType: "blob",
+    });
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute(
+      "download",
+      `세무결산_${filters.year}_${filters.customer}.xlsx`,
+    );
+    document.body.appendChild(link);
+    link.click();
+  };
+
   return (
-    <div
-      style={{
-        padding: "25px",
-        backgroundColor: "#f5f7fb",
-        minHeight: "100vh",
-        fontFamily: "Pretendard",
-      }}
-    >
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          marginBottom: "25px",
-        }}
-      >
-        <h2 style={{ margin: 0 }}>💎 세무 결산 마스터 v4.0</h2>
-        <div
-          style={{
-            backgroundColor: "#2c3e50",
-            color: "#fff",
-            padding: "10px 20px",
-            borderRadius: "10px",
-          }}
-        >
-          필터 합계: <strong>{totalAmount.toLocaleString()}원</strong> (
-          {filteredData.length}건)
+    <div style={containerStyle}>
+      {/* 헤더 섹션 */}
+      <header style={headerStyle}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: "24px", color: "#1a1a1a" }}>
+            💎 세무 결산 마스터 v5.0
+          </h1>
+          <p style={{ color: "#666", margin: "5px 0 0 0" }}>
+            데이터 분석 및 자동 분류 시스템
+          </p>
+        </div>
+        <div style={summaryBadgeStyle}>
+          필터 결과: {totalAmount.toLocaleString()}원 / {filteredData.length}건
         </div>
       </header>
 
-      {/* 요약 카드 그리드 */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: "20px",
-          marginBottom: "25px",
-        }}
-      >
+      {/* 요약 대시보드 카드 */}
+      <div style={dashboardGridStyle}>
         <div style={cardStyle}>
-          <h4>📅 업로드 히스토리</h4>
-          <div style={{ maxHeight: "150px", overflowY: "auto" }}>
-            {stats.documents.map((d, i) => (
-              <div key={i} style={statItemStyle}>
-                <span>{d.customer}</span>
-                <small style={{ color: "#888" }}>
-                  {d.filename.substring(0, 15)}...
-                </small>
+          <h4 style={cardTitleStyle}>📈 월별 지출 추이</h4>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={monthlyTrend}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="month" fontSize={10} />
+              <YAxis hide />
+              <Tooltip formatter={(v) => v.toLocaleString() + "원"} />
+              <Legend iconSize={10} wrapperStyle={{ fontSize: "10px" }} />
+              {Object.keys(EXPENSE_TAGS).map((tag) => (
+                <Bar
+                  key={tag}
+                  dataKey={tag}
+                  stackId="a"
+                  fill={EXPENSE_TAGS[tag].color}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div style={cardStyle}>
+          <h4 style={cardTitleStyle}>🥧 지출 비율</h4>
+          <div style={{ maxHeight: "200px", overflowY: "auto" }}>
+            {tagStats.map((item) => (
+              <div
+                key={item.tag}
+                style={{ marginBottom: "12px" }}
+                title={`${item.count}건 / ${item.total.toLocaleString()}원`}
+              >
+                <div style={tagLabelRow}>
+                  <span>
+                    {EXPENSE_TAGS[item.tag]?.icon} {item.tag}
+                  </span>
+                  <span style={{ fontWeight: "bold" }}>
+                    {item.percentage.toFixed(1)}%
+                  </span>
+                </div>
+                <div style={progressBg}>
+                  <div
+                    style={{
+                      ...progressFill,
+                      width: `${item.percentage}%`,
+                      backgroundColor: EXPENSE_TAGS[item.tag]?.color,
+                    }}
+                  />
+                </div>
               </div>
             ))}
           </div>
         </div>
+
         <div style={cardStyle}>
-          <h4>📑 문서별 검증</h4>
-          {stats.documents.map((d) => (
-            <div key={d.filename} style={statItemStyle}>
-              <span>{d.filename}</span>
-              <strong>{d.total.toLocaleString()}원</strong>
-            </div>
-          ))}
-        </div>
-        <div style={cardStyle}>
-          <h4>📊 지출 비율</h4>
-          {stats.tags.map((t) => (
-            <div key={t.tag} style={{ marginBottom: "8px" }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  fontSize: "12px",
-                }}
-              >
-                <span>{t.tag}</span>
-                <span>{Math.round((t.total / totalAmount) * 100)}%</span>
-              </div>
-              <div
-                style={{
-                  height: "6px",
-                  background: "#eee",
-                  borderRadius: "3px",
-                }}
-              >
+          <h4 style={cardTitleStyle}>📁 업로드 히스토리 / 문서 검증</h4>
+          <div style={{ maxHeight: "200px", overflowY: "auto" }}>
+            {stats.documents.map((d, i) => (
+              <div key={i} style={docItemStyle}>
+                <div style={{ fontSize: "12px", fontWeight: "bold" }}>
+                  {d.customer}
+                </div>
                 <div
                   style={{
-                    width: `${(t.total / totalAmount) * 100}%`,
-                    height: "100%",
-                    background: EXPENSE_TAGS[t.tag]?.color,
-                    borderRadius: "3px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "11px",
+                    color: "#666",
                   }}
-                />
+                >
+                  <span>{d.filename}</span>
+                  <strong>{d.total.toLocaleString()}원</strong>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* 컨트롤 바 */}
-      <div
-        style={{
-          ...cardStyle,
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "15px",
-          alignItems: "center",
-          marginBottom: "25px",
-        }}
-      >
-        <strong>연도:</strong>
-        <select
-          value={filters.year}
-          onChange={(e) => setFilters({ ...filters, year: e.target.value })}
-        >
-          {yearOptions.map((y) => (
-            <option key={y} value={y}>
-              {y}년
-            </option>
-          ))}
-        </select>
-        <strong>이용자:</strong>
-        <select
-          value={filters.customer}
-          onChange={(e) =>
-            setFilters({
-              ...filters,
-              customer: e.target.value,
-              filename: "All",
-            })
-          }
-        >
-          {customerList.map((c) => (
-            <option key={c} value={c}>
-              {c === "All" ? "전체" : c}
-            </option>
-          ))}
-        </select>
-        <strong>파일명:</strong>
-        <select
-          value={filters.filename}
-          onChange={(e) => setFilters({ ...filters, filename: e.target.value })}
-        >
-          {filenameList.map((f) => (
-            <option key={f} value={f}>
-              {f === "All" ? "전체 파일" : f}
-            </option>
-          ))}
-        </select>
-        <strong>검색:</strong>
-        <input
-          type="text"
-          placeholder="가맹점명..."
-          onChange={(e) => setSearchTerm(e.target.value)}
-          style={{ padding: "5px" }}
-        />
+      {/* 컨트롤 및 필터 바 */}
+      <div style={filterBarStyle}>
+        <div style={filterGroup}>
+          <span style={labelStyle}>📅 연도:</span>
+          <select
+            style={selectStyle}
+            value={filters.year}
+            onChange={(e) => setFilters({ ...filters, year: e.target.value })}
+          >
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>
+                {y}년
+              </option>
+            ))}
+          </select>
+        </div>
+        <div style={filterGroup}>
+          <span style={labelStyle}>👤 이용자:</span>
+          <select
+            style={selectStyle}
+            value={filters.customer}
+            onChange={(e) =>
+              setFilters({
+                ...filters,
+                customer: e.target.value,
+                filename: "All",
+              })
+            }
+          >
+            {customerList.map((c) => (
+              <option key={c} value={c}>
+                {c === "All" ? "전체 이용자" : c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div style={filterGroup}>
+          <span style={labelStyle}>📄 파일명:</span>
+          <select
+            style={selectStyle}
+            value={filters.filename}
+            onChange={(e) =>
+              setFilters({ ...filters, filename: e.target.value })
+            }
+          >
+            {filenameList.map((f) => (
+              <option key={f} value={f}>
+                {f === "All" ? "전체 파일" : f}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div style={filterGroup}>
+          <span style={labelStyle}>🔍 검색:</span>
+          <input
+            style={inputStyle}
+            type="text"
+            placeholder="가맹점명 입력..."
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
 
-        <div style={{ marginLeft: "auto", display: "flex", gap: "10px" }}>
-          <input type="file" onChange={(e) => setFile(e.target.files[0])} />
-          <button onClick={onUpload} style={btnStyle}>
-            파싱 업로드
+        <div style={{ marginLeft: "auto", display: "flex", gap: "8px" }}>
+          <input
+            type="file"
+            onChange={(e) => setFile(e.target.files[0])}
+            style={{ fontSize: "12px" }}
+          />
+          <button onClick={onUpload} style={btnStyle} disabled={loading}>
+            업로드
           </button>
           <button
             onClick={onSaveAll}
             style={{ ...btnStyle, backgroundColor: "#228be6" }}
           >
-            변경사항 일괄저장
+            일괄저장
+          </button>
+          <button
+            onClick={exportExcel}
+            style={{ ...btnStyle, backgroundColor: "#40c057" }}
+          >
+            Excel
           </button>
         </div>
       </div>
 
-      {/* 데이터 그리드 */}
-      <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead
-            style={{
-              backgroundColor: "#f8f9fa",
-              borderBottom: "2px solid #dee2e6",
-            }}
-          >
-            <tr>
+      {/* 데이터 상세 그리드 */}
+      <div style={tableWrapperStyle}>
+        <table style={tableStyle}>
+          <thead>
+            <tr style={theadStyle}>
               <th style={thStyle}>날짜</th>
               <th style={thStyle}>이용자</th>
               <th style={thStyle}>가맹점명</th>
               <th style={thStyle}>금액</th>
               <th style={thStyle}>태그 분류</th>
-              <th style={thStyle}>기능</th>
+              <th style={thStyle}>관리</th>
             </tr>
           </thead>
           <tbody>
             {filteredData.map((r) => (
-              <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
+              <tr key={r.id} style={trStyle}>
                 <td style={tdStyle}>{r.pay_date}</td>
-                <td style={tdStyle}>{r.customer}</td>
+                <td style={tdStyle}>
+                  <span style={userBadge}>{r.customer}</span>
+                </td>
                 <td
-                  style={{ ...tdStyle, textAlign: "left", fontWeight: "bold" }}
+                  style={{ ...tdStyle, textAlign: "left", fontWeight: "500" }}
                 >
                   {r.vendor}
                 </td>
                 <td
-                  style={{ ...tdStyle, textAlign: "right", color: "#e74c3c" }}
+                  style={{
+                    ...tdStyle,
+                    textAlign: "right",
+                    fontWeight: "bold",
+                    color: "#e03131",
+                  }}
                 >
                   {r.amount.toLocaleString()}원
                 </td>
                 <td style={tdStyle}>
                   <select
-                    style={{ padding: "4px", borderRadius: "4px" }}
+                    style={tagSelectStyle}
                     value={modified[r.id] || r.tag}
                     onChange={(e) =>
                       setModified({ ...modified, [r.id]: e.target.value })
@@ -325,9 +419,9 @@ function App() {
                     onClick={() =>
                       onBulkVendorUpdate(r.vendor, modified[r.id] || r.tag)
                     }
-                    style={{ fontSize: "11px", padding: "2px 5px" }}
+                    style={miniBtnStyle}
                   >
-                    가맹점일괄적용
+                    가맹점 일괄적용
                   </button>
                 </td>
               </tr>
@@ -339,28 +433,150 @@ function App() {
   );
 }
 
+// --- 스타일 정의 (Professional UI) ---
+const containerStyle = {
+  padding: "30px",
+  backgroundColor: "#f8f9fa",
+  minHeight: "100vh",
+  fontFamily: "'Pretendard', sans-serif",
+};
+const headerStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: "30px",
+};
+const summaryBadgeStyle = {
+  backgroundColor: "#1a1c23",
+  color: "#fff",
+  padding: "12px 24px",
+  borderRadius: "12px",
+  fontWeight: "bold",
+  fontSize: "15px",
+  boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+};
+const dashboardGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "1.5fr 1fr 1fr",
+  gap: "20px",
+  marginBottom: "30px",
+};
 const cardStyle = {
   backgroundColor: "#fff",
   padding: "20px",
-  borderRadius: "12px",
-  boxShadow: "0 4px 6px rgba(0,0,0,0.05)",
+  borderRadius: "16px",
+  boxShadow: "0 2px 12px rgba(0,0,0,0.04)",
+  border: "1px solid #eee",
 };
-const statItemStyle = {
+const cardTitleStyle = {
+  margin: "0 0 15px 0",
+  fontSize: "14px",
+  color: "#444",
+  borderLeft: "4px solid #339af0",
+  paddingLeft: "10px",
+};
+const filterBarStyle = {
+  backgroundColor: "#fff",
+  padding: "15px 20px",
+  borderRadius: "16px",
   display: "flex",
-  justifyContent: "space-between",
-  padding: "8px 0",
-  borderBottom: "1px solid #f8f9fa",
+  flexWrap: "wrap",
+  gap: "20px",
+  alignItems: "center",
+  marginBottom: "20px",
+  boxShadow: "0 2px 12px rgba(0,0,0,0.04)",
+};
+const filterGroup = { display: "flex", alignItems: "center", gap: "8px" };
+const labelStyle = { fontSize: "13px", fontWeight: "bold", color: "#666" };
+const selectStyle = {
+  padding: "6px 10px",
+  borderRadius: "8px",
+  border: "1px solid #ddd",
   fontSize: "13px",
 };
-const thStyle = { padding: "12px", fontSize: "13px", color: "#666" };
-const tdStyle = { padding: "12px", textAlign: "center", fontSize: "14px" };
+const inputStyle = {
+  padding: "6px 10px",
+  borderRadius: "8px",
+  border: "1px solid #ddd",
+  fontSize: "13px",
+};
 const btnStyle = {
-  padding: "8px 15px",
+  padding: "8px 16px",
+  borderRadius: "8px",
   border: "none",
-  borderRadius: "6px",
   color: "#fff",
-  backgroundColor: "#495057",
+  backgroundColor: "#343a40",
+  cursor: "pointer",
+  fontSize: "13px",
+  fontWeight: "bold",
+};
+const tableWrapperStyle = {
+  backgroundColor: "#fff",
+  borderRadius: "16px",
+  overflow: "hidden",
+  boxShadow: "0 2px 12px rgba(0,0,0,0.04)",
+};
+const tableStyle = { width: "100%", borderCollapse: "collapse" };
+const theadStyle = {
+  backgroundColor: "#f1f3f5",
+  borderBottom: "2px solid #dee2e6",
+};
+const thStyle = {
+  padding: "15px",
+  fontSize: "12px",
+  color: "#495057",
+  fontWeight: "bold",
+  textAlign: "center",
+};
+const trStyle = {
+  borderBottom: "1px solid #f1f3f5",
+  transition: "background 0.2s",
+};
+const tdStyle = {
+  padding: "12px 15px",
+  fontSize: "13px",
+  color: "#343a40",
+  textAlign: "center",
+};
+const userBadge = {
+  backgroundColor: "#e7f5ff",
+  color: "#1971c2",
+  padding: "4px 8px",
+  borderRadius: "6px",
+  fontSize: "11px",
+  fontWeight: "bold",
+};
+const tagSelectStyle = {
+  padding: "5px",
+  borderRadius: "6px",
+  border: "1px solid #eee",
+  fontSize: "12px",
+};
+const miniBtnStyle = {
+  padding: "4px 8px",
+  fontSize: "11px",
+  backgroundColor: "#f1f3f5",
+  border: "1px solid #dee2e6",
+  borderRadius: "4px",
   cursor: "pointer",
 };
+const tagLabelRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  fontSize: "12px",
+  marginBottom: "5px",
+};
+const progressBg = {
+  width: "100%",
+  height: "6px",
+  backgroundColor: "#f1f3f5",
+  borderRadius: "3px",
+};
+const progressFill = {
+  height: "100%",
+  borderRadius: "3px",
+  transition: "width 0.5s ease-in-out",
+};
+const docItemStyle = { padding: "10px 0", borderBottom: "1px solid #f8f9fa" };
 
 export default App;

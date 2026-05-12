@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Depends, Form, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from .database import SessionLocal, init_db, UploadFileRecord, CardRecord
@@ -7,6 +8,9 @@ from datetime import datetime
 from typing import List
 from .parser import parser_engine
 from sqlalchemy import func
+import pandas as pd
+from reportlab.pdfgen import canvas # PDF용
+from io import BytesIO
 
 app = FastAPI()
 init_db()
@@ -37,7 +41,7 @@ async def handle_upload(
     
     if existing:
         if not is_overwrite:
-            raise HTTPException(status_code=409, detail="Duplicate file")
+            raise HTTPException(status_code=409, detail="이미 업로드된 파일명입니다. 기존 파일을 삭제 후 다시 시도하세요.")
         db.delete(existing)
         db.commit()
 
@@ -150,3 +154,22 @@ def bulk_vendor_update(data: dict, db: Session = Depends(get_db)):
       .update({"tag": data['tag']})
     db.commit()
     return {"message": f"All {data['vendor']} updated to {data['tag']}"}
+
+# 1. 자동 태그 추천 엔진
+@app.get("/recommend-tag")
+def recommend_tag(vendor: str, db: Session = Depends(get_db)):
+    # 해당 가맹점에 대해 가장 많이 사용된 태그를 검색
+    result = db.query(CardRecord.tag, func.count(CardRecord.tag).label('cnt'))\
+        .filter(CardRecord.vendor == vendor)\
+        .group_by(CardRecord.tag)\
+        .order_by(desc('cnt')).first()
+    return {"tag": result[0] if result else "기타"}
+
+# 3. 엑셀 다운로드 (Filtered Data)
+@app.post("/export/excel")
+async def export_excel(data: list[dict]):
+    df = pd.DataFrame(data)
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='지출내역')
+    return StreamingResponse(BytesIO(output.getvalue()), media_type="application/vnd.ms-excel", headers={"Content-Disposition": "attachment; filename=tax_report.xlsx"})
