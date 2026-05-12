@@ -6,15 +6,13 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   CartesianGrid,
-  Cell,
 } from "recharts";
 
 const API_URL = "http://192.168.0.241:3001";
 
-// MD3 Typography & Color Palette
+// MD3 Dynamic Palette
 const MD3_THEME = {
   light: {
     primary: "#6750a4",
@@ -69,7 +67,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const fileInputRef = useRef(null);
 
-  // --- Dynamic Theme Engine ---
+  // --- 테마 로직 ---
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const updateTheme = () => {
@@ -99,7 +97,17 @@ function App() {
     }
   };
 
-  // --- Data Analytics ---
+  // --- 데이터 필터 및 통계 (useMemo 정교화) ---
+  const customerList = useMemo(() => {
+    return ["All", ...new Set(records.map((r) => r.customer))]
+      .filter(Boolean)
+      .sort();
+  }, [records]);
+
+  const filenameList = useMemo(() => {
+    return ["All", ...new Set(records.map((r) => r.filename))].filter(Boolean);
+  }, [records]);
+
   const filteredData = useMemo(
     () =>
       records.filter(
@@ -135,15 +143,13 @@ function App() {
     filteredData.forEach((r) => {
       const m = r.pay_date.substring(0, 7);
       if (!months[m]) months[m] = { month: m, total: 0, count: 0 };
-      const tag = modified[r.id] || r.tag;
-      months[m][tag] = (months[m][tag] || 0) + r.amount;
       months[m].total += r.amount;
       months[m].count += 1;
     });
     return Object.values(months).sort((a, b) => a.month.localeCompare(b.month));
-  }, [filteredData, modified]);
+  }, [filteredData]);
 
-  // --- Actions ---
+  // --- 핸들러 ---
   const handleUpload = async () => {
     if (!file) return;
     const formData = new FormData();
@@ -154,13 +160,23 @@ function App() {
     setFile(null);
   };
 
+  const handleSaveAll = async () => {
+    const updates = Object.entries(modified).map(([id, tag]) => ({
+      id: parseInt(id),
+      tag,
+    }));
+    if (updates.length === 0) return alert("수정사항이 없습니다.");
+    await axios.post(`${API_URL}/update-tags`, updates);
+    alert("성공적으로 저장되었습니다.");
+    loadData();
+  };
+
   const exportExcel = () =>
     axios
       .post(`${API_URL}/export/excel`, filteredData, { responseType: "blob" })
       .then((res) => {
-        const url = window.URL.createObjectURL(new Blob([res.data]));
         const link = document.createElement("a");
-        link.href = url;
+        link.href = URL.createObjectURL(new Blob([res.data]));
         link.download = `Settlement_${filters.year}.xlsx`;
         link.click();
       });
@@ -173,42 +189,28 @@ function App() {
         { responseType: "blob" },
       )
       .then((res) => {
-        const url = window.URL.createObjectURL(new Blob([res.data]));
         const link = document.createElement("a");
-        link.href = url;
-        link.download = `Report_${filters.year}.pdf`;
+        link.href = URL.createObjectURL(new Blob([res.data]));
+        link.download = `TaxReport_${filters.year}.pdf`;
         link.click();
       });
 
-  // --- Custom Tooltip for Recharts ---
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
         <div
           style={{
+            ...tooltipCard,
             backgroundColor: theme.surfaceContainer,
-            padding: "12px",
-            borderRadius: "12px",
             border: `1px solid ${theme.outline}`,
-            boxShadow: "0 4px 10px rgba(0,0,0,0.1)",
           }}
         >
-          <p
-            style={{
-              margin: "0 0 8px 0",
-              fontWeight: "bold",
-              fontSize: "14px",
-            }}
-          >
-            {label}
+          <p style={{ fontWeight: "bold", marginBottom: "4px" }}>{label}</p>
+          <p style={{ color: theme.primary }}>
+            {data.total.toLocaleString()}원
           </p>
-          <p style={{ margin: 0, fontSize: "13px", color: theme.primary }}>
-            합계: {data.total?.toLocaleString()}원
-          </p>
-          <p style={{ margin: 0, fontSize: "13px", opacity: 0.8 }}>
-            건수: {data.count}건
-          </p>
+          <small>{data.count}건</small>
         </div>
       );
     }
@@ -223,11 +225,11 @@ function App() {
         color: theme.onSurface,
       }}
     >
-      {/* MD3 Navigation Bar */}
+      {/* Top App Bar */}
       <nav style={navBar}>
         <div style={brandSection}>
           <span style={{ fontSize: "28px" }}>💎</span>
-          <h1 style={headlineMedium}>Tax Settlement Master</h1>
+          <h1 style={headlineMedium}>Tax Master v7.1</h1>
         </div>
         <div style={themeToggle}>
           {["system", "light", "dark"].map((m) => (
@@ -248,21 +250,20 @@ function App() {
       </nav>
 
       <main style={mainGrid}>
-        {/* Left Section: Analytics */}
+        {/* Left Column: Analytics & History */}
         <aside style={sideColumn}>
-          {/* 복구된 월별 추이 그래프 */}
           <section
             style={{ ...md3Card, backgroundColor: theme.surfaceVariant }}
           >
-            <h3 style={titleSmall}>📈 월별 지출 추이</h3>
-            <div style={{ height: "220px", marginTop: "16px" }}>
+            <h3 style={titleSmall}>📈 월별 추이</h3>
+            <div style={{ height: "180px", marginTop: "16px" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={monthlyTrend}>
                   <CartesianGrid
                     strokeDasharray="3 3"
                     vertical={false}
                     stroke={theme.outline}
-                    opacity={0.2}
+                    opacity={0.1}
                   />
                   <XAxis dataKey="month" hide />
                   <YAxis hide />
@@ -275,10 +276,8 @@ function App() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <p style={bodySmall}>마우스 오버 시 상세 금액/건수가 표시됩니다.</p>
           </section>
 
-          {/* 지출 비율 섹션 */}
           <section
             style={{
               ...md3Card,
@@ -292,7 +291,7 @@ function App() {
                 <div
                   key={item.tag}
                   style={ratioContainer}
-                  title={`금액: ${item.total.toLocaleString()}원 / 건수: ${item.count}건`}
+                  title={`합계: ${item.total.toLocaleString()}원 / 건수: ${item.count}건`}
                 >
                   <div style={ratioHeader}>
                     <span style={labelMedium}>
@@ -316,11 +315,50 @@ function App() {
               ))}
             </div>
           </section>
+
+          {/* 복구된 업로드 히스토리 */}
+          <section
+            style={{
+              ...md3Card,
+              backgroundColor: theme.surfaceVariant,
+              marginTop: "24px",
+              flex: 1,
+            }}
+          >
+            <h3 style={titleSmall}>📁 업로드 히스토리</h3>
+            <div style={historyList}>
+              {stats.documents.map((d, i) => (
+                <div key={i} style={historyItem}>
+                  <div style={{ fontSize: "11px", opacity: 0.6 }}>
+                    {d.customer}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: "13px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: "120px",
+                      }}
+                    >
+                      {d.filename}
+                    </span>
+                    <strong>{d.total.toLocaleString()}원</strong>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
         </aside>
 
-        {/* Right Section: Content */}
+        {/* Right Column: Grid & Filters */}
         <div style={contentColumn}>
-          {/* MD3 Filter Bar */}
           <div
             style={{
               ...md3Card,
@@ -328,11 +366,10 @@ function App() {
               display: "flex",
               gap: "20px",
               flexWrap: "wrap",
-              alignItems: "center",
             }}
           >
             <div style={inputGroup}>
-              <label style={labelSmall}>연도</label>
+              <label style={labelSmall}>기준연도</label>
               <select
                 style={{ ...md3Select, color: theme.onSurface }}
                 value={filters.year}
@@ -361,16 +398,15 @@ function App() {
               </select>
             </div>
             <div style={{ flex: 1 }}>
-              <label style={labelSmall}>가맹점명 검색</label>
+              <label style={labelSmall}>가맹점 검색</label>
               <input
                 style={{ ...md3Input, color: theme.onSurface }}
-                placeholder="검색어 입력..."
+                placeholder="검색어를 입력하세요..."
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
           </div>
 
-          {/* Actions & File Upload */}
           <div style={actionRow}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <button
@@ -388,27 +424,25 @@ function App() {
               <span style={bodySmall}>
                 {file ? file.name : "선택된 파일 없음"}
               </span>
-              <button
-                style={{ ...filledBtn, display: file ? "block" : "none" }}
-                onClick={handleUpload}
-              >
-                업로드 시작
-              </button>
+              {file && (
+                <button style={filledBtn} onClick={handleUpload}>
+                  업로드
+                </button>
+              )}
             </div>
             <div style={{ display: "flex", gap: "10px" }}>
               <button style={outlineBtn} onClick={exportExcel}>
-                Excel 추출
+                Excel
               </button>
               <button style={outlineBtn} onClick={exportPDF}>
                 PDF 리포트
               </button>
-              <button style={filledBtn} onClick={() => alert("일괄 저장 완료")}>
+              <button style={filledBtn} onClick={handleSaveAll}>
                 일괄 저장
               </button>
             </div>
           </div>
 
-          {/* Data Table */}
           <div
             style={{
               ...md3Card,
@@ -449,7 +483,7 @@ function App() {
                         fontWeight: "bold",
                       }}
                     >
-                      {r.amount.toLocaleString()}원
+                      {r.amount.toLocaleString()}
                     </td>
                     <td style={tdStyle}>
                       <select
@@ -477,32 +511,28 @@ function App() {
   );
 }
 
-// --- MD3 Typography & Styles ---
+// --- 스타일 정의 (가독성 및 MD3 최적화) ---
 const headlineMedium = {
   fontSize: "24px",
   fontWeight: 400,
   margin: 0,
   letterSpacing: "-0.5px",
+  fontFamily: "Pretendard, sans-serif",
 };
 const titleSmall = {
   fontSize: "14px",
-  fontWeight: 500,
+  fontWeight: 600,
   margin: 0,
   opacity: 0.8,
 };
-const bodySmall = {
-  fontSize: "12px",
-  fontWeight: 400,
-  opacity: 0.7,
-  marginTop: "8px",
-};
+const bodySmall = { fontSize: "12px", fontWeight: 400, opacity: 0.7 };
 const labelMedium = { fontSize: "12px", fontWeight: 500 };
 const labelSmall = {
   fontSize: "11px",
-  fontWeight: 500,
-  marginBottom: "4px",
+  fontWeight: 600,
+  marginBottom: "6px",
   display: "block",
-  opacity: 0.7,
+  opacity: 0.6,
 };
 
 const appContainer = { minHeight: "100vh", transition: "background 0.3s" };
@@ -542,20 +572,30 @@ const md3Card = {
   borderRadius: "28px",
   border: "1px solid rgba(0,0,0,0.05)",
 };
-const ratioContainer = { marginBottom: "16px", cursor: "pointer" };
+const ratioContainer = { marginBottom: "16px" };
 const ratioHeader = {
   display: "flex",
   justifyContent: "space-between",
   marginBottom: "6px",
 };
 const progressBg = {
-  height: "12px",
+  height: "8px",
   width: "100%",
   backgroundColor: "rgba(0,0,0,0.08)",
   borderRadius: "100px",
   overflow: "hidden",
 };
 const progressFill = { height: "100%", transition: "width 0.8s ease" };
+
+const historyList = {
+  marginTop: "16px",
+  maxHeight: "300px",
+  overflowY: "auto",
+};
+const historyItem = {
+  padding: "12px 0",
+  borderBottom: "1px solid rgba(0,0,0,0.05)",
+};
 
 const inputGroup = { display: "flex", flexDirection: "column" };
 const md3Select = {
@@ -621,5 +661,6 @@ const miniSelect = {
   color: "inherit",
   fontSize: "13px",
 };
+const tooltipCard = { padding: "12px", borderRadius: "16px", fontSize: "12px" };
 
 export default App;
