@@ -8,11 +8,12 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
+  Cell,
 } from "recharts";
 
 const API_URL = "http://192.168.0.241:3001";
 
-// MD3 Dynamic Palette
+// MD3 Color Scheme 가이드 반영 (다크모드 가독성 강화)
 const MD3_THEME = {
   light: {
     primary: "#6750a4",
@@ -24,7 +25,10 @@ const MD3_THEME = {
     surfaceVariant: "#e7e0eb",
     onSurfaceVariant: "#49454f",
     outline: "#79747e",
+    outlineVariant: "#c9c4d0",
     secondaryContainer: "#e8def8",
+    tooltipBg: "#313033",
+    tooltipText: "#f4eff4",
   },
   dark: {
     primary: "#d0bcff",
@@ -36,7 +40,10 @@ const MD3_THEME = {
     surfaceVariant: "#49454f",
     onSurfaceVariant: "#cac4d0",
     outline: "#938f99",
-    secondaryContainer: "#4a4458",
+    outlineVariant: "#49454f",
+    secondaryContainer: "#332d41",
+    tooltipBg: "#e6e1e5",
+    tooltipText: "#313033",
   },
 };
 
@@ -63,11 +70,11 @@ function App() {
     year: new Date().getFullYear(),
     customer: "All",
     filename: "All",
+    tag: "All",
   });
   const [searchTerm, setSearchTerm] = useState("");
   const fileInputRef = useRef(null);
 
-  // --- 테마 로직 ---
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const updateTheme = () => {
@@ -97,16 +104,19 @@ function App() {
     }
   };
 
-  // --- 데이터 필터 및 통계 (useMemo 정교화) ---
-  const customerList = useMemo(() => {
-    return ["All", ...new Set(records.map((r) => r.customer))]
-      .filter(Boolean)
-      .sort();
-  }, [records]);
-
-  const filenameList = useMemo(() => {
-    return ["All", ...new Set(records.map((r) => r.filename))].filter(Boolean);
-  }, [records]);
+  // --- 필터 데이터 가공 ---
+  const customerList = useMemo(
+    () =>
+      ["All", ...new Set(records.map((r) => r.customer))]
+        .filter(Boolean)
+        .sort(),
+    [records],
+  );
+  const filenameList = useMemo(
+    () => ["All", ...new Set(records.map((r) => r.filename))].filter(Boolean),
+    [records],
+  );
+  const tagList = useMemo(() => ["All", ...Object.keys(EXPENSE_TAGS)], []);
 
   const filteredData = useMemo(
     () =>
@@ -114,13 +124,16 @@ function App() {
         (r) =>
           (filters.customer === "All" || r.customer === filters.customer) &&
           (filters.filename === "All" || r.filename === filters.filename) &&
+          (filters.tag === "All" ||
+            (modified[r.id] || r.tag) === filters.tag) &&
           r.vendor.toLowerCase().includes(searchTerm.toLowerCase()),
       ),
-    [records, filters, searchTerm],
+    [records, filters, searchTerm, modified],
   );
 
   const totalAmount = filteredData.reduce((sum, r) => sum + r.amount, 0);
 
+  // --- 통계 계산 ---
   const tagStats = useMemo(() => {
     const tags = {};
     filteredData.forEach((r) => {
@@ -149,7 +162,7 @@ function App() {
     return Object.values(months).sort((a, b) => a.month.localeCompare(b.month));
   }, [filteredData]);
 
-  // --- 핸들러 ---
+  // --- Actions ---
   const handleUpload = async () => {
     if (!file) return;
     const formData = new FormData();
@@ -167,7 +180,7 @@ function App() {
     }));
     if (updates.length === 0) return alert("수정사항이 없습니다.");
     await axios.post(`${API_URL}/update-tags`, updates);
-    alert("성공적으로 저장되었습니다.");
+    alert("저장되었습니다.");
     loadData();
   };
 
@@ -191,31 +204,38 @@ function App() {
       .then((res) => {
         const link = document.createElement("a");
         link.href = URL.createObjectURL(new Blob([res.data]));
-        link.download = `TaxReport_${filters.year}.pdf`;
+        link.download = `Report_${filters.year}.pdf`;
         link.click();
       });
 
+  // --- MD3 커스텀 툴팁 (불투명 배경 적용) ---
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
         <div
           style={{
-            ...tooltipCard,
-            backgroundColor: theme.surfaceContainer,
-            border: `1px solid ${theme.outline}`,
+            backgroundColor: theme.tooltipBg,
+            color: theme.tooltipText,
+            padding: "12px",
+            borderRadius: "12px",
+            boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+            border: `1px solid ${theme.outlineVariant}`,
           }}
         >
-          <p style={{ fontWeight: "bold", marginBottom: "4px" }}>{label}</p>
-          <p style={{ color: theme.primary }}>
-            {data.total.toLocaleString()}원
+          <p style={{ margin: "0 0 4px 0", fontWeight: "bold" }}>
+            {label || data.tag}
           </p>
-          <small>{data.count}건</small>
+          <p style={{ margin: 0 }}>금액: {data.total.toLocaleString()}원</p>
+          <p style={{ margin: 0, opacity: 0.8 }}>건수: {data.count}건</p>
         </div>
       );
     }
     return null;
   };
+
+  // 지출 비율용 툴팁 컴포넌트
+  const [hoverTag, setHoverTag] = useState(null);
 
   return (
     <div
@@ -225,11 +245,10 @@ function App() {
         color: theme.onSurface,
       }}
     >
-      {/* Top App Bar */}
       <nav style={navBar}>
         <div style={brandSection}>
           <span style={{ fontSize: "28px" }}>💎</span>
-          <h1 style={headlineMedium}>Tax Master v7.1</h1>
+          <h1 style={headlineMedium}>Tax Master v8.0</h1>
         </div>
         <div style={themeToggle}>
           {["system", "light", "dark"].map((m) => (
@@ -250,12 +269,12 @@ function App() {
       </nav>
 
       <main style={mainGrid}>
-        {/* Left Column: Analytics & History */}
         <aside style={sideColumn}>
+          {/* 월별 추이 */}
           <section
             style={{ ...md3Card, backgroundColor: theme.surfaceVariant }}
           >
-            <h3 style={titleSmall}>📈 월별 추이</h3>
+            <h3 style={titleSmall}>📈 월별 지출 추이</h3>
             <div style={{ height: "180px", marginTop: "16px" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={monthlyTrend}>
@@ -263,11 +282,14 @@ function App() {
                     strokeDasharray="3 3"
                     vertical={false}
                     stroke={theme.outline}
-                    opacity={0.1}
+                    opacity={0.2}
                   />
                   <XAxis dataKey="month" hide />
                   <YAxis hide />
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip
+                    content={<CustomTooltip />}
+                    cursor={{ fill: theme.onSurface, opacity: 0.1 }}
+                  />
                   <Bar
                     dataKey="total"
                     fill={theme.primary}
@@ -278,11 +300,13 @@ function App() {
             </div>
           </section>
 
+          {/* 지출 비율 (커스텀 툴팁 추가) */}
           <section
             style={{
               ...md3Card,
               backgroundColor: theme.surfaceVariant,
               marginTop: "24px",
+              position: "relative",
             }}
           >
             <h3 style={titleSmall}>🥧 지출 비율</h3>
@@ -291,7 +315,8 @@ function App() {
                 <div
                   key={item.tag}
                   style={ratioContainer}
-                  title={`합계: ${item.total.toLocaleString()}원 / 건수: ${item.count}건`}
+                  onMouseEnter={() => setHoverTag(item)}
+                  onMouseLeave={() => setHoverTag(null)}
                 >
                   <div style={ratioHeader}>
                     <span style={labelMedium}>
@@ -311,12 +336,23 @@ function App() {
                       }}
                     />
                   </div>
+                  {/* Floating Tooltip for Progress Bar */}
+                  {hoverTag?.tag === item.tag && (
+                    <div
+                      style={{ position: "absolute", left: "20px", zIndex: 10 }}
+                    >
+                      <CustomTooltip
+                        active={true}
+                        payload={[{ payload: item }]}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </section>
 
-          {/* 복구된 업로드 히스토리 */}
+          {/* 업로드 히스토리 */}
           <section
             style={{
               ...md3Card,
@@ -328,7 +364,13 @@ function App() {
             <h3 style={titleSmall}>📁 업로드 히스토리</h3>
             <div style={historyList}>
               {stats.documents.map((d, i) => (
-                <div key={i} style={historyItem}>
+                <div
+                  key={i}
+                  style={{
+                    ...historyItem,
+                    borderBottom: `1px solid ${theme.outlineVariant}`,
+                  }}
+                >
                   <div style={{ fontSize: "11px", opacity: 0.6 }}>
                     {d.customer}
                   </div>
@@ -357,21 +399,25 @@ function App() {
           </section>
         </aside>
 
-        {/* Right Column: Grid & Filters */}
         <div style={contentColumn}>
+          {/* 5단 필터 배치 수정 */}
           <div
             style={{
               ...md3Card,
               backgroundColor: theme.surfaceVariant,
-              display: "flex",
-              gap: "20px",
-              flexWrap: "wrap",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              gap: "16px",
             }}
           >
             <div style={inputGroup}>
               <label style={labelSmall}>기준연도</label>
               <select
-                style={{ ...md3Select, color: theme.onSurface }}
+                style={{
+                  ...md3Select,
+                  color: theme.onSurface,
+                  borderColor: theme.outline,
+                }}
                 value={filters.year}
                 onChange={(e) =>
                   setFilters({ ...filters, year: e.target.value })
@@ -382,13 +428,18 @@ function App() {
               </select>
             </div>
             <div style={inputGroup}>
-              <label style={labelSmall}>이용자</label>
+              <label style={labelSmall}>성명(이용자)</label>
               <select
-                style={{ ...md3Select, color: theme.onSurface }}
+                style={{
+                  ...md3Select,
+                  color: theme.onSurface,
+                  borderColor: theme.outline,
+                }}
                 value={filters.customer}
                 onChange={(e) =>
                   setFilters({ ...filters, customer: e.target.value })
                 }
+                title="전체 성명 검색"
               >
                 {customerList.map((c) => (
                   <option key={c} value={c}>
@@ -397,11 +448,57 @@ function App() {
                 ))}
               </select>
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={inputGroup}>
+              <label style={labelSmall}>파일명</label>
+              <select
+                style={{
+                  ...md3Select,
+                  color: theme.onSurface,
+                  borderColor: theme.outline,
+                }}
+                value={filters.filename}
+                onChange={(e) =>
+                  setFilters({ ...filters, filename: e.target.value })
+                }
+                title="파일명 필터"
+              >
+                {filenameList.map((f) => (
+                  <option key={f} value={f}>
+                    {f === "All" ? "전체" : f}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={inputGroup}>
+              <label style={labelSmall}>태그명</label>
+              <select
+                style={{
+                  ...md3Select,
+                  color: theme.onSurface,
+                  borderColor: theme.outline,
+                }}
+                value={filters.tag}
+                onChange={(e) =>
+                  setFilters({ ...filters, tag: e.target.value })
+                }
+                title="태그 필터"
+              >
+                {tagList.map((t) => (
+                  <option key={t} value={t}>
+                    {t === "All" ? "전체" : t}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={inputGroup}>
               <label style={labelSmall}>가맹점 검색</label>
               <input
-                style={{ ...md3Input, color: theme.onSurface }}
-                placeholder="검색어를 입력하세요..."
+                style={{
+                  ...md3Input,
+                  color: theme.onSurface,
+                  borderColor: theme.outline,
+                }}
+                placeholder="검색어..."
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
@@ -410,7 +507,11 @@ function App() {
           <div style={actionRow}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <button
-                style={tonalBtn}
+                style={{
+                  ...tonalBtn,
+                  backgroundColor: theme.primaryContainer,
+                  color: theme.onPrimaryContainer,
+                }}
                 onClick={() => fileInputRef.current.click()}
               >
                 📁 파일 선택
@@ -425,19 +526,39 @@ function App() {
                 {file ? file.name : "선택된 파일 없음"}
               </span>
               {file && (
-                <button style={filledBtn} onClick={handleUpload}>
+                <button
+                  style={{
+                    ...filledBtn,
+                    backgroundColor: theme.primary,
+                    color: theme.onPrimary,
+                  }}
+                  onClick={handleUpload}
+                >
                   업로드
                 </button>
               )}
             </div>
             <div style={{ display: "flex", gap: "10px" }}>
-              <button style={outlineBtn} onClick={exportExcel}>
+              <button
+                style={{ ...outlineBtn, borderColor: theme.outline }}
+                onClick={exportExcel}
+              >
                 Excel
               </button>
-              <button style={outlineBtn} onClick={exportPDF}>
+              <button
+                style={{ ...outlineBtn, borderColor: theme.outline }}
+                onClick={exportPDF}
+              >
                 PDF 리포트
               </button>
-              <button style={filledBtn} onClick={handleSaveAll}>
+              <button
+                style={{
+                  ...filledBtn,
+                  backgroundColor: theme.primary,
+                  color: theme.onPrimary,
+                }}
+                onClick={handleSaveAll}
+              >
                 일괄 저장
               </button>
             </div>
@@ -449,6 +570,7 @@ function App() {
               padding: 0,
               overflow: "hidden",
               marginTop: "20px",
+              border: `1px solid ${theme.outlineVariant}`,
             }}
           >
             <table style={md3Table}>
@@ -465,11 +587,20 @@ function App() {
                 {filteredData.map((r) => (
                   <tr
                     key={r.id}
-                    style={{ borderBottom: `1px solid ${theme.outline}22` }}
+                    style={{
+                      borderBottom: `1px solid ${theme.outlineVariant}`,
+                    }}
                   >
                     <td style={tdStyle}>{r.pay_date}</td>
                     <td style={tdStyle}>
-                      <span style={badgeStyle}>{r.customer}</span>
+                      <span
+                        style={{
+                          ...badgeStyle,
+                          backgroundColor: theme.surfaceVariant,
+                        }}
+                      >
+                        {r.customer}
+                      </span>
                     </td>
                     <td
                       style={{ ...tdStyle, textAlign: "left", fontWeight: 500 }}
@@ -487,7 +618,7 @@ function App() {
                     </td>
                     <td style={tdStyle}>
                       <select
-                        style={miniSelect}
+                        style={{ ...miniSelect, color: theme.onSurface }}
                         value={modified[r.id] || r.tag}
                         onChange={(e) =>
                           setModified({ ...modified, [r.id]: e.target.value })
@@ -511,25 +642,24 @@ function App() {
   );
 }
 
-// --- 스타일 정의 (가독성 및 MD3 최적화) ---
+// --- MD3 Styles (가독성 보정) ---
 const headlineMedium = {
-  fontSize: "24px",
-  fontWeight: 400,
+  fontSize: "22px",
+  fontWeight: 600,
   margin: 0,
-  letterSpacing: "-0.5px",
   fontFamily: "Pretendard, sans-serif",
 };
 const titleSmall = {
   fontSize: "14px",
-  fontWeight: 600,
+  fontWeight: 700,
   margin: 0,
-  opacity: 0.8,
+  opacity: 0.9,
 };
-const bodySmall = { fontSize: "12px", fontWeight: 400, opacity: 0.7 };
-const labelMedium = { fontSize: "12px", fontWeight: 500 };
+const bodySmall = { fontSize: "12px", opacity: 0.8 };
+const labelMedium = { fontSize: "12px", fontWeight: 600 };
 const labelSmall = {
   fontSize: "11px",
-  fontWeight: 600,
+  fontWeight: 700,
   marginBottom: "6px",
   display: "block",
   opacity: 0.6,
@@ -537,22 +667,22 @@ const labelSmall = {
 
 const appContainer = { minHeight: "100vh", transition: "background 0.3s" };
 const navBar = {
-  height: "80px",
+  height: "72px",
   padding: "0 32px",
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
 };
-const brandSection = { display: "flex", alignItems: "center", gap: "16px" };
+const brandSection = { display: "flex", alignItems: "center", gap: "12px" };
 const themeToggle = {
   display: "flex",
   borderRadius: "100px",
-  border: "1px solid #79747e",
+  border: "1px solid rgba(128,128,128,0.5)",
   overflow: "hidden",
 };
 const toggleBtn = {
   border: "none",
-  padding: "6px 16px",
+  padding: "6px 14px",
   fontSize: "10px",
   cursor: "pointer",
   fontWeight: "bold",
@@ -561,7 +691,7 @@ const toggleBtn = {
 const mainGrid = {
   display: "grid",
   gridTemplateColumns: "320px 1fr",
-  gap: "32px",
+  gap: "24px",
   padding: "0 32px 40px 32px",
 };
 const sideColumn = { display: "flex", flexDirection: "column" };
@@ -570,46 +700,48 @@ const contentColumn = { display: "flex", flexDirection: "column" };
 const md3Card = {
   padding: "24px",
   borderRadius: "28px",
-  border: "1px solid rgba(0,0,0,0.05)",
+  transition: "all 0.3s",
 };
-const ratioContainer = { marginBottom: "16px" };
+const ratioContainer = { marginBottom: "16px", cursor: "pointer" };
 const ratioHeader = {
   display: "flex",
   justifyContent: "space-between",
   marginBottom: "6px",
 };
 const progressBg = {
-  height: "8px",
+  height: "10px",
   width: "100%",
-  backgroundColor: "rgba(0,0,0,0.08)",
+  backgroundColor: "rgba(128,128,128,0.15)",
   borderRadius: "100px",
   overflow: "hidden",
 };
-const progressFill = { height: "100%", transition: "width 0.8s ease" };
+const progressFill = {
+  height: "100%",
+  transition: "width 0.8s cubic-bezier(0.4, 0, 0.2, 1)",
+};
 
 const historyList = {
   marginTop: "16px",
-  maxHeight: "300px",
+  maxHeight: "280px",
   overflowY: "auto",
 };
-const historyItem = {
-  padding: "12px 0",
-  borderBottom: "1px solid rgba(0,0,0,0.05)",
-};
+const historyItem = { padding: "12px 0" };
 
 const inputGroup = { display: "flex", flexDirection: "column" };
 const md3Select = {
-  padding: "10px",
+  padding: "12px",
   borderRadius: "12px",
-  border: "1px solid #79747e",
+  border: "1px solid",
   background: "transparent",
+  fontSize: "13px",
 };
 const md3Input = {
-  width: "100%",
-  padding: "10px 16px",
+  padding: "12px 16px",
   borderRadius: "12px",
-  border: "1px solid #79747e",
+  border: "1px solid",
   background: "transparent",
+  fontSize: "13px",
+  width: "calc(100% - 32px)",
 };
 
 const actionRow = {
@@ -619,27 +751,23 @@ const actionRow = {
   marginTop: "24px",
 };
 const filledBtn = {
-  padding: "10px 24px",
+  padding: "12px 24px",
   borderRadius: "100px",
   border: "none",
-  backgroundColor: "#6750a4",
-  color: "#fff",
   fontWeight: "bold",
   cursor: "pointer",
 };
 const tonalBtn = {
-  padding: "10px 24px",
+  padding: "12px 24px",
   borderRadius: "100px",
   border: "none",
-  backgroundColor: "#eaddff",
-  color: "#21005d",
   fontWeight: "bold",
   cursor: "pointer",
 };
 const outlineBtn = {
-  padding: "10px 24px",
+  padding: "12px 24px",
   borderRadius: "100px",
-  border: "1px solid #79747e",
+  border: "1px solid",
   background: "transparent",
   color: "inherit",
   fontWeight: "bold",
@@ -647,20 +775,23 @@ const outlineBtn = {
 };
 
 const md3Table = { width: "100%", borderCollapse: "collapse" };
-const thStyle = { padding: "16px", fontSize: "12px", textAlign: "center" };
-const tdStyle = { padding: "16px", fontSize: "14px", textAlign: "center" };
+const thStyle = {
+  padding: "14px",
+  fontSize: "12px",
+  textAlign: "center",
+  fontWeight: "bold",
+};
+const tdStyle = { padding: "14px", fontSize: "13px", textAlign: "center" };
 const badgeStyle = {
-  padding: "4px 8px",
+  padding: "4px 10px",
   borderRadius: "8px",
-  backgroundColor: "rgba(0,0,0,0.05)",
   fontSize: "11px",
 };
 const miniSelect = {
   border: "none",
   background: "transparent",
-  color: "inherit",
   fontSize: "13px",
+  cursor: "pointer",
 };
-const tooltipCard = { padding: "12px", borderRadius: "16px", fontSize: "12px" };
 
 export default App;
