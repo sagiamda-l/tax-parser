@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   backend:
@@ -6,6 +6,8 @@ services:
     container_name: tax-backend
     volumes:
       - tax_db_data:/app/data
+    environment:
+      - SPREADSHEET_ID=your_google_sheet_id_here # 여기에 시트 ID 입력
     ports:
       - "8000:8000"
     restart: always

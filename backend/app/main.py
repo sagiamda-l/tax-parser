@@ -14,6 +14,13 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from google_sheet import GoogleSheetsManager
+from pydantic import BaseModel
+
+# Docker 볼륨 경로 설정
+DATA_FOLDER = "./data" 
+DB_PATH = os.path.join(DATA_FOLDER, "tax_data.db")
+gs_manager = GoogleSheetsManager(DATA_FOLDER)
 
 app = FastAPI()
 init_db()
@@ -222,3 +229,21 @@ async def export_pdf(data: dict):
     
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="application/pdf")
+
+class SyncRequest(BaseModel):
+    year: str
+
+@app.post("/api/sync-sheets")
+async def sync_sheets(request: SyncRequest):
+    """
+    프론트엔드에서 선택된 연도를 받아 구글 시트로 동기화합니다.
+    """
+    if not request.year:
+        raise HTTPException(status_code=400, detail="연도(year) 정보가 필요합니다.")
+
+    result = gs_manager.sync_sqlite_to_sheets(DB_PATH, request.year)
+    
+    if result["status"] == "error":
+        raise HTTPException(status_code=500, detail=result["message"])
+        
+    return result

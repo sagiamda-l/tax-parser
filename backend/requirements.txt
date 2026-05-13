@@ -7,3 +7,5 @@ sqlalchemy
 openpyxl
 xlrd
 reportlab
+gspread
+google-auth
