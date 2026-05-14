@@ -14,13 +14,13 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from google_sheet import GoogleSheetsManager
+#from google_sheet import GoogleSheetsManager
 from pydantic import BaseModel
 
 # Docker 볼륨 경로 설정
 DATA_FOLDER = "./data" 
 DB_PATH = os.path.join(DATA_FOLDER, "tax_data.db")
-gs_manager = GoogleSheetsManager(DATA_FOLDER)
+#gs_manager = GoogleSheetsManager(DATA_FOLDER)
 
 app = FastAPI()
 init_db()
