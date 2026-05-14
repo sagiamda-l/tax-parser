@@ -194,8 +194,8 @@ async def export_excel(data: list[dict]):
     export_df = df[[c for c in columns_map.keys() if c in df.columns]].rename(columns=columns_map)
     
     # 날짜 포맷 통일 (YYYY-MM-DD)
-    if '결제일자' in export_df.columns:
-        export_df['결제일자'] = pd.to_datetime(export_df['결제일자']).dt.strftime('%Y-%m-%d')
+    #if '결제일자' in export_df.columns:
+    #    export_df['결제일자'] = pd.to_datetime(export_df['결제일자']).dt.strftime('%Y-%m-%d')
 
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
