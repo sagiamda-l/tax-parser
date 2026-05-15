@@ -2,10 +2,11 @@ import os
 import gspread
 from google.oauth2.service_account import Credentials
 import sqlite3
+import time
+import random
 
 class GoogleSheetsManager:
     def __init__(self, db_folder_path: str):
-        # 환경 변수 및 경로 설정
         self.sheet_id = os.getenv('SPREADSHEET_ID')
         self.creds_path = os.path.join(db_folder_path, 'credentials.json')
         self.scopes = [
@@ -15,47 +16,59 @@ class GoogleSheetsManager:
         
     def _get_client(self):
         if not os.path.exists(self.creds_path):
-            raise FileNotFoundError(f"인증 파일이 없습니다: {self.creds_path}")
-        
+            raise FileNotFoundError(f"인증 키 파일이 없습니다: {self.creds_path}")
         creds = Credentials.from_service_account_file(self.creds_path, scopes=self.scopes)
         return gspread.authorize(creds)
 
     def sync_sqlite_to_sheets(self, db_path: str, year: str):
-        try:
-            client = self._get_client()
-            if not self.sheet_id:
-                return {"status": "error", "message": "SPREADSHEET_ID 환경 변수가 설정되지 않았습니다."}
-            
-            spreadsheet = client.open_by_key(self.sheet_id)
-            sheet_name = f"{year}년 결산"
-
-            # 1. 시트 확인 및 생성
+        """
+        API 제한 방지를 위해 최대 3회 재시도(지수 백오프) 로직을 적용한 동기화 기능
+        """
+        max_retries = 3
+        backoff_factor = 2
+        
+        for attempt in range(max_retries):
             try:
-                worksheet = spreadsheet.worksheet(sheet_name)
-            except gspread.exceptions.WorksheetNotFound:
-                worksheet = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="10")
+                client = self._get_client()
+                if not self.sheet_id:
+                    return {"status": "error", "message": "SPREADSHEET_ID 환경 변수가 없습니다."}
+                
+                spreadsheet = client.open_by_key(self.sheet_id)
+                sheet_name = f"{year}년 결산"
 
-            # 2. SQLite 데이터 추출
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            query = """
-                SELECT pay_date, customer, vendor, amount, tag 
-                FROM records 
-                WHERE strftime('%Y', pay_date) = ? 
-                ORDER BY pay_date ASC
-            """
-            cursor.execute(query, (year,))
-            rows = cursor.fetchall()
-            conn.close()
+                try:
+                    worksheet = spreadsheet.worksheet(sheet_name)
+                except gspread.exceptions.WorksheetNotFound:
+                    worksheet = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="10")
 
-            # 3. 데이터 준비 및 전송
-            header = ["날짜", "이용자", "가맹점", "금액", "태그"]
-            data_to_sync = [header] + [list(row) for row in rows]
+                # SQLite 데이터 추출
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                query = """
+                    SELECT pay_date, customer, vendor, amount, tag 
+                    FROM records 
+                    WHERE strftime('%Y', pay_date) = ? 
+                    ORDER BY pay_date ASC
+                """
+                cursor.execute(query, (year,))
+                rows = cursor.fetchall()
+                conn.close()
 
-            worksheet.clear()
-            worksheet.update('A1', data_to_sync)
-            
-            return {"status": "success", "count": len(rows), "sheet_name": sheet_name}
-            
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+                header = ["날짜", "이용자", "가맹점", "금액", "태그"]
+                data_to_sync = [header] + [list(row) for row in rows]
+
+                # 단 2번의 대량 전송(Batch Call)으로 API 사용 최소화
+                worksheet.clear()
+                worksheet.update('A1', data_to_sync)
+                
+                return {"status": "success", "count": len(rows), "sheet_name": sheet_name}
+
+            except gspread.exceptions.APIError as api_err:
+                # 429 Too Many Requests 에러 발생 시 재시도 수행
+                if api_err.response.status_code == 429 and attempt < max_retries - 1:
+                    sleep_time = (backoff_factor ** attempt) + random.uniform(0, 1)
+                    time.sleep(sleep_time)
+                    continue
+                return {"status": "error", "message": f"Google API 오류: {str(api_err)}"}
+            except Exception as e:
+                return {"status": "error", "message": str(e)}

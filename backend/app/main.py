@@ -3,24 +3,55 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from .database import SessionLocal, init_db, UploadFileRecord, CardRecord
-import random, os
+import random, os, io
 from datetime import datetime
 from typing import List
 from .parser import parser_engine
 from sqlalchemy import func
 import pandas as pd
 from io import BytesIO
-from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-#from google_sheet import GoogleSheetsManager
+from google_sheet import GoogleSheetsManager
 from pydantic import BaseModel
 
 # Docker 볼륨 경로 설정
 DATA_FOLDER = "./data" 
 DB_PATH = os.path.join(DATA_FOLDER, "tax_data.db")
-#gs_manager = GoogleSheetsManager(DATA_FOLDER)
+gs_manager = GoogleSheetsManager(DATA_FOLDER)
+
+# --- [한글 폰트 등록 처리] ---
+# ./data 폴더에 NanumGothic.ttf 등의 폰트 파일을 같이 넣어두면 PDF 한글 인식이 가능합니다.
+FONT_NAME = "Helvetica"
+for font_file in ["NanumGothic.ttf", "Malgun.ttf", "unbatang.ttf", "NanumSquare.ttf"]:
+    potential_path = os.path.join(DATA_FOLDER, font_file)
+    if os.path.exists(potential_path):
+        pdfmetrics.registerFont(TTFont("KoreanFont", potential_path))
+        FONT_NAME = "KoreanFont"
+        break
+
+# --- [Pydantic 요청 스키마] ---
+class SyncRequest(BaseModel):
+    year: str
+
+class RecordItem(BaseModel):
+    pay_date: str
+    customer: str
+    vendor: str
+    amount: int
+    tag: str
+
+class PDFExportRequest(BaseModel):
+    totalAmount: int
+    records: list[RecordItem]
+
+class TagUpdateItem(BaseModel):
+    id: int
+    tag: str
 
 app = FastAPI()
 init_db()
@@ -166,13 +197,18 @@ def bulk_vendor_update(data: dict, db: Session = Depends(get_db)):
     return {"message": f"All {data['vendor']} updated to {data['tag']}"}
 
 # 1. 자동 태그 추천 엔진
-@app.get("/recommend-tag")
+@app.get("/api/recommend-tag")
 def recommend_tag(vendor: str, db: Session = Depends(get_db)):
-    # 해당 가맹점에 대해 가장 많이 사용된 태그를 검색
-    result = db.query(CardRecord.tag, func.count(CardRecord.tag).label('cnt'))\
-        .filter(CardRecord.vendor == vendor)\
-        .group_by(CardRecord.tag)\
-        .order_by(desc('cnt')).first()
+    if not vendor:
+        return {"tag": "기타"}
+    
+    # 에러가 발생하던 desc('cnt') 대신 func.count().desc() 구조로 변경하여 안정성 확보
+    result = db.query(CardRecord.tag)\
+               .filter(CardRecord.vendor == vendor)\
+               .group_by(CardRecord.tag)\
+               .order_by(func.count(CardRecord.tag).desc())\
+               .first()
+               
     return {"tag": result[0] if result else "기타"}
 
 # 1. 엑셀 내보내기 (데이터 정제 및 헤더 한글화)
@@ -208,27 +244,101 @@ async def export_excel(data: list[dict]):
     )
 
 # 2. PDF 종합 보고서 생성 (구조화된 리포트)
-@app.post("/export/pdf")
-async def export_pdf(data: dict):
-    # data 구조: { "summary": {...}, "records": [...] }
-    buffer = BytesIO()
-    p = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
+@app.post("/api/export/pdf")
+async def export_pdf(request: PDFExportRequest):
+    """
+    UI에서 필터링된 내역과 총 금액을 바탕으로 깔끔한 구조의 세무 결산 PDF를 실시간 생성합니다.
+    """
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=A4,
+        rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30
+    )
+    
+    styles = getSampleStyleSheet()
+    
+    # 스타일 재정의 (등록된 한글 폰트 반영)
+    title_style = ParagraphStyle(
+        'PDFTitle',
+        parent=styles['Heading1'],
+        fontName=FONT_NAME,
+        fontSize=24,
+        leading=28,
+        textColor=colors.HexColor("#6750a4"),
+        alignment=1, # 가운데 정렬
+        spaceAfter=20
+    )
+    
+    body_style = ParagraphStyle(
+        'PDFBody',
+        parent=styles['Normal'],
+        fontName=FONT_NAME,
+        fontSize=10,
+        leading=14,
+        textColor=colors.HexColor("#1d1b20")
+    )
+    
+    header_style = ParagraphStyle(
+        'PDFHeader',
+        parent=styles['Normal'],
+        fontName=FONT_NAME,
+        fontSize=10,
+        leading=12,
+        textColor=colors.white,
+        alignment=1
+    )
 
-    # (주의: 한글 폰트 설정이 필요합니다. 여기서는 구조적 예시만 작성합니다)
-    p.setFont("Helvetica-Bold", 20)
-    p.drawString(50, height - 50, "Tax Settlement Report")
+    story = []
     
-    p.setFont("Helvetica", 12)
-    p.drawString(50, height - 80, f"Total Amount: {data['totalAmount']:,} KRW")
-    p.drawString(50, height - 100, f"Total Count: {len(data['records'])} cases")
+    # 문서 제목 및 요약 정보
+    story.append(Paragraph("세무 결산 보고서 (Tax Master Report)", title_style))
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(f"<b>총 집계 금액:</b> {request.totalAmount:,} 원", body_style))
+    story.append(Paragraph(f"<b>총 추출 건수:</b> {len(request.records):,} 건", body_style))
+    story.append(Spacer(1, 15))
     
-    # 상세 내역 테이블 형태로 드로잉 (생략 - 실제 구현 시 루프 사용)
-    p.showPage()
-    p.save()
+    # 테이블 데이터 구조화
+    table_data = [[
+        Paragraph("<b>날짜</b>", header_style),
+        Paragraph("<b>이용자</b>", header_style),
+        Paragraph("<b>가맹점</b>", header_style),
+        Paragraph("<b>금액</b>", header_style),
+        Paragraph("<b>태그</b>", header_style)
+    ]]
+    
+    for r in request.records:
+        table_data.append([
+            Paragraph(r.pay_date, body_style),
+            Paragraph(r.customer, body_style),
+            Paragraph(r.vendor, body_style),
+            Paragraph(f"{r.amount:,}원", body_style),
+            Paragraph(r.tag, body_style)
+        ])
+        
+    # MD3 컬러 수치를 가미한 테이블 스타일링
+    record_table = Table(table_data, colWidths=[80, 70, 180, 90, 110])
+    record_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6750a4")), # Header 배경
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('TOPPADDING', (0, 0), (-1, 0), 8),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cac4d0")), # 그리드 라인 명도 보정
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#fef7ff")]), # 교차 행 배경
+        ('TOPPADDING', (0, 1), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+    ]))
+    
+    story.append(record_table)
+    doc.build(story)
     
     buffer.seek(0)
-    return StreamingResponse(buffer, media_type="application/pdf")
+    return StreamingResponse(
+        buffer, 
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=Tax_Report.pdf"}
+    )
 
 class SyncRequest(BaseModel):
     year: str
