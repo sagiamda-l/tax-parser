@@ -4,6 +4,7 @@ from google.oauth2.service_account import Credentials
 import sqlite3
 import time
 import random
+import traceback  # 파일 최상단 import 문에 추가
 
 class GoogleSheetsManager:
     def __init__(self, db_folder_path: str):
@@ -64,11 +65,15 @@ class GoogleSheetsManager:
                 return {"status": "success", "count": len(rows), "sheet_name": sheet_name}
 
             except gspread.exceptions.APIError as api_err:
-                # 429 Too Many Requests 에러 발생 시 재시도 수행
+                traceback.print_exc() # 도커 터미널에 에러 출력
                 if api_err.response.status_code == 429 and attempt < max_retries - 1:
                     sleep_time = (backoff_factor ** attempt) + random.uniform(0, 1)
                     time.sleep(sleep_time)
                     continue
                 return {"status": "error", "message": f"Google API 오류: {str(api_err)}"}
+                
             except Exception as e:
-                return {"status": "error", "message": str(e)}
+                traceback.print_exc() # 도커 터미널에 에러 출력 (이게 있어야 로그에 찍힙니다)
+                # str(e)가 비어있을 경우를 대비해 에러 타입 이름(예: OperationalError)을 반환하도록 보완
+                error_msg = str(e).strip() or f"Unknown Internal Error ({type(e).__name__})"
+                return {"status": "error", "message": error_msg}
