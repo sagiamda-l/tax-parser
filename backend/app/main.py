@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 # Docker 볼륨 경로 설정
 DATA_FOLDER = "./data" 
-DB_PATH = os.path.join(DATA_FOLDER, "tax_data.db")
+DB_PATH = os.path.join(DATA_FOLDER, "tax_parser.db")
 gs_manager = GoogleSheetsManager(DATA_FOLDER)
 
 # --- [한글 폰트 등록 처리] ---
