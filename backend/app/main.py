@@ -1,9 +1,11 @@
+import random, os, io, sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from fastapi import FastAPI, UploadFile, File, Depends, Form, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from .database import SessionLocal, init_db, UploadFileRecord, CardRecord
-import random, os, io
 from datetime import datetime
 from typing import List
 from .parser import parser_engine
