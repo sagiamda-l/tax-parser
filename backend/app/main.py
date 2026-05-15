@@ -38,7 +38,7 @@ for font_file in ["NanumGothic.ttf", "Malgun.ttf", "unbatang.ttf", "NanumSquare.
 
 # --- [Pydantic 요청 스키마] ---
 class SyncRequest(BaseModel):
-    year: str
+    year: int | str  # 숫자와 문자열 입력을 모두 허용합니다. (Python 3.10+ 문법)
 
 class RecordItem(BaseModel):
     pay_date: str
@@ -246,7 +246,7 @@ async def export_excel(data: list[dict]):
     )
 
 # 2. PDF 종합 보고서 생성 (구조화된 리포트)
-@app.post("/api/export/pdf")
+@app.post("/export/pdf")
 async def export_pdf(request: PDFExportRequest):
     """
     UI에서 필터링된 내역과 총 금액을 바탕으로 깔끔한 구조의 세무 결산 PDF를 실시간 생성합니다.
@@ -347,14 +347,14 @@ class SyncRequest(BaseModel):
 
 @app.post("/api/sync-sheets")
 async def sync_sheets(request: SyncRequest):
-    """
-    프론트엔드에서 선택된 연도를 받아 구글 시트로 동기화합니다.
-    """
-    if not request.year:
-        raise HTTPException(status_code=400, detail="연도(year) 정보가 필요합니다.")
+    # 어떤 타입이 들어오든 안전하게 문자열("2026")로 변환합니다.
+    year_str = str(request.year).strip()
 
-    result = gs_manager.sync_sqlite_to_sheets(DB_PATH, request.year)
-    
+    if not year_str or year_str == "None":
+        raise HTTPException(status_code=400, detail="연도 정보가 필요합니다.")
+
+    # 구글 시트 매니저에는 변환된 문자열 전달
+    result = gs_manager.sync_sqlite_to_sheets(DB_PATH, year_str)
     if result["status"] == "error":
         raise HTTPException(status_code=500, detail=result["message"])
         
