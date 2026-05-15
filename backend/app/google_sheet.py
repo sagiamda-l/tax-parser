@@ -47,8 +47,8 @@ class GoogleSheetsManager:
                 cursor = conn.cursor()
                 query = """
                     SELECT b.pay_date, a.customer, b.vendor, b.amount, a.filename, b.tag 
-                    FROM upload_files a, card_records b
-                    WHERE a.id = b.upload_file_id
+                    FROM card_records b
+                    JOIN upload_files a ON a.id = b.file_id
                     AND a.target_year = ? 
                     ORDER BY b.pay_date ASC
                 """
