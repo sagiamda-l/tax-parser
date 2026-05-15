@@ -342,9 +342,6 @@ async def export_pdf(request: PDFExportRequest):
         headers={"Content-Disposition": "attachment; filename=Tax_Report.pdf"}
     )
 
-class SyncRequest(BaseModel):
-    year: str
-
 @app.post("/api/sync-sheets")
 async def sync_sheets(request: SyncRequest):
     # 어떤 타입이 들어오든 안전하게 문자열("2026")로 변환합니다.
