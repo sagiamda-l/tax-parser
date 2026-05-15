@@ -46,16 +46,17 @@ class GoogleSheetsManager:
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
                 query = """
-                    SELECT pay_date, customer, vendor, amount, tag 
-                    FROM records 
-                    WHERE strftime('%Y', pay_date) = ? 
-                    ORDER BY pay_date ASC
+                    SELECT b.pay_date, a.customer, b.vendor, b.amount, a.filename, b.tag 
+                    FROM upload_files a, card_records b
+                    WHERE a.id = b.upload_file_id
+                    AND a.target_year = ? 
+                    ORDER BY b.pay_date ASC
                 """
                 cursor.execute(query, (year,))
                 rows = cursor.fetchall()
                 conn.close()
 
-                header = ["날짜", "이용자", "가맹점", "금액", "태그"]
+                header = ["날짜", "이용자", "가맹점", "금액", "파일명", "태그"]
                 data_to_sync = [header] + [list(row) for row in rows]
 
                 # 단 2번의 대량 전송(Batch Call)으로 API 사용 최소화
