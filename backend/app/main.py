@@ -202,7 +202,7 @@ def bulk_vendor_update(data: dict, db: Session = Depends(get_db)):
 @app.get("/api/recommend-tag")
 def recommend_tag(vendor: str, db: Session = Depends(get_db)):
     if not vendor:
-        return {"tag": "기타"}
+        return {"tag": "불필요"}
     
     # 에러가 발생하던 desc('cnt') 대신 func.count().desc() 구조로 변경하여 안정성 확보
     result = db.query(CardRecord.tag)\
@@ -211,7 +211,7 @@ def recommend_tag(vendor: str, db: Session = Depends(get_db)):
                .order_by(func.count(CardRecord.tag).desc())\
                .first()
                
-    return {"tag": result[0] if result else "기타"}
+    return {"tag": result[0] if result else "불필요"}
 
 # 1. 엑셀 내보내기 (데이터 정제 및 헤더 한글화)
 @app.post("/export/excel")

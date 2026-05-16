@@ -55,6 +55,7 @@ const EXPENSE_TAGS = {
   광고선전비: { color: "#94d82d", icon: "📢" },
   여비교통비: { color: "#fcc419", icon: "🚄" },
   기타: { color: "#adb5bd", icon: "📦" },
+  불필요: { color: "#868e96", icon: "❌" },
 };
 
 function App() {
@@ -163,13 +164,22 @@ function App() {
 
   // --- 핵심 기능: 일괄 태그 변환 ---
   const applyTagToAllSameVendor = (vendor, newTag) => {
-    const newModified = { ...modified };
-    records.forEach((r) => {
-      if (r.vendor === vendor) {
-        newModified[r.id] = newTag;
-      }
+    if (!vendor || !newTag) return;
+
+    // 함수형 업데이트(prevModified)를 사용하면 항상 가장 최신의 상태를 보장받습니다.
+    setModified((prevModified) => {
+      const nextModified = { ...prevModified };
+      const targetVendor = vendor.trim();
+
+      records.forEach((r) => {
+        // 가맹점명 앞뒤 공백을 제거하고 비교하여 매칭 정확도를 높입니다.
+        if (r.vendor && r.vendor.trim() === targetVendor) {
+          nextModified[r.id] = newTag;
+        }
+      });
+
+      return nextModified;
     });
-    setModified(newModified);
   };
 
   const handleSaveAll = async () => {
@@ -656,35 +666,51 @@ function App() {
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "center",
+                          justify: "center",
                           gap: "4px",
                         }}
                       >
-                        <select
-                          style={{ ...miniSelect, color: theme.onSurface }}
-                          value={modified[r.id] || r.tag}
-                          onChange={(e) =>
-                            setModified({ ...modified, [r.id]: e.target.value })
-                          }
-                        >
-                          {Object.keys(EXPENSE_TAGS).map((t) => (
-                            <option key={t} value={t}>
-                              {EXPENSE_TAGS[t].icon} {t}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() =>
-                            applyTagToAllSameVendor(
-                              r.vendor,
-                              modified[r.id] || r.tag,
-                            )
-                          }
-                          style={magicBtn}
-                          title="이 가맹점의 모든 항목에 동일 태그 적용"
-                        >
-                          🪄
-                        </button>
+                        {/* 현재 행의 최종 태그 값을 명시적으로 정의 (선택 우선 -> 원본 백업) */}
+                        {(() => {
+                          const currentTag =
+                            modified[r.id] !== undefined
+                              ? modified[r.id]
+                              : r.tag;
+
+                          return (
+                            <>
+                              <select
+                                style={{
+                                  ...miniSelect,
+                                  color: theme.onSurface,
+                                }}
+                                value={currentTag || ""}
+                                onChange={(e) =>
+                                  setModified({
+                                    ...modified,
+                                    [r.id]: e.target.value,
+                                  })
+                                }
+                              >
+                                {Object.keys(EXPENSE_TAGS).map((t) => (
+                                  <option key={t} value={t}>
+                                    {EXPENSE_TAGS[t].icon} {t}
+                                  </option>
+                                ))}
+                              </select>
+
+                              <button
+                                onClick={() =>
+                                  applyTagToAllSameVendor(r.vendor, currentTag)
+                                }
+                                style={magicBtn}
+                                title="이 가맹점의 모든 항목에 동일 태그 적용"
+                              >
+                                🪄
+                              </button>
+                            </>
+                          );
+                        })()}
                       </div>
                     </td>
                   </tr>

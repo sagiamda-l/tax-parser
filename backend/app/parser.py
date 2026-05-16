@@ -28,7 +28,7 @@ class TaxParser:
         for tag, keywords in self.tag_keywords.items():
             if any(kw in vendor for kw in keywords):
                 return tag
-        return "기타"
+        return "불필요"
 
     def parse(self, file_path, filename):
         # [수정 포인트] 튜플 반환 처리 및 확장자만 추출
