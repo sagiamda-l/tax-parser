@@ -247,6 +247,76 @@ function App() {
     }
   };
 
+  const [showHelp, setShowHelp] = useState(false);
+
+  // 도움말 열기/닫기 함수
+  const toggleHelp = () => setShowHelp(!showHelp);
+
+  // 1. 상태 추가
+  const [filterOperator, setFilterOperator] = useState("all"); // 전체, gt, lt, eq, gte, lte, ne
+  const [filterAmount, setFilterAmount] = useState("");
+  const [sortConfig, setSortConfig] = useState({
+    key: "pay_date",
+    direction: "asc",
+  }); // 기본값: 날짜 오름차순
+
+  // 2. 정렬 변경 함수
+  const handleSort = (key) => {
+    let direction = "asc";
+    if (sortConfig.key === key && sortConfig.direction === "asc") {
+      direction = "desc";
+    }
+    setSortConfig({ key, direction });
+  };
+
+  // 3. [핵심] 필터링 + 정렬이 적용된 최종 리스트 계산
+  const processedRecords = useMemo(() => {
+    // 3-1. 금액 필터링 적용
+    let result = records.filter((r) => {
+      if (filterOperator === "all" || !filterAmount) return true;
+
+      const recordAmt = Number(r.amount) || 0;
+      const targetAmt = Number(filterAmount) || 0;
+
+      switch (filterOperator) {
+        case "gt":
+          return recordAmt > targetAmt; // 크다
+        case "lt":
+          return recordAmt < targetAmt; // 작다
+        case "eq":
+          return recordAmt === targetAmt; // 같다
+        case "gte":
+          return recordAmt >= targetAmt; // 같거나 크다
+        case "lte":
+          return recordAmt <= targetAmt; // 같거나 작다
+        case "ne":
+          return recordAmt !== targetAmt; // 다르다
+        default:
+          return true;
+      }
+    });
+
+    // 3-2. 정렬 적용
+    if (sortConfig.key) {
+      result.sort((a, b) => {
+        let aValue = a[sortConfig.key];
+        let bValue = b[sortConfig.key];
+
+        // 금액 정렬일 경우 숫자로 변환하여 비교
+        if (sortConfig.key === "amount") {
+          aValue = Number(aValue) || 0;
+          bValue = Number(bValue) || 0;
+        }
+
+        if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [records, filterOperator, filterAmount, sortConfig]);
+
   return (
     <div
       style={{
@@ -260,6 +330,32 @@ function App() {
         <div style={brandSection}>
           <span style={{ fontSize: "28px" }}>💎</span>
           <h1 style={headlineMedium}>Tax Master v8.1</h1>
+        </div>
+        // 상단 버튼 예시
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <h1>종합소득세 신고 도우미</h1>
+          <div>
+            <button
+              onClick={toggleHelp}
+              style={{
+                background: "none",
+                border: `1px solid ${theme.primary}`,
+                color: theme.primary,
+                borderRadius: "20px",
+                padding: "5px 15px",
+                cursor: "pointer",
+                fontWeight: "bold",
+              }}
+            >
+              ❓ 도움말
+            </button>
+          </div>
         </div>
         <div style={themeToggle}>
           {["system", "light", "dark"].map((m) => (
@@ -514,7 +610,56 @@ function App() {
               />
             </div>
           </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              marginBottom: "15px",
+              padding: "10px",
+              backgroundColor: theme.surfaceVariant || "#f9f9f9",
+              borderRadius: "12px",
+            }}
+          >
+            <span style={{ fontSize: "0.9rem", fontWeight: "bold" }}>
+              💰 금액 검색 :
+            </span>
 
+            {/* 조건 선택 Dropdown */}
+            <select
+              value={filterOperator}
+              onChange={(e) => setFilterOperator(e.target.value)}
+              style={{
+                padding: "6px 12px",
+                borderRadius: "8px",
+                border: "1px solid #ccc",
+              }}
+            >
+              <option value="all">전체</option>
+              <option value="gt">크다 (&gt;)</option>
+              <option value="lt">작다 (&lt;)</option>
+              <option value="eq">같다 (=)</option>
+              <option value="gte">같거나 크다 (&gt;=)</option>
+              <option value="lte">같거나 작다 (&lt;=)</option>
+              <option value="ne">다르다 (!=)</option>
+            </select>
+
+            {/* 금액 입력란 ('전체'가 아닐 때만 노출) */}
+            {filterOperator !== "all" && (
+              <input
+                type="number"
+                placeholder="금액을 입력하세요"
+                value={filterAmount}
+                onChange={(e) => setFilterAmount(e.target.value)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #ccc",
+                  width: "150px",
+                }}
+              />
+            )}
+          </div>
           <div style={actionRow}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <button
@@ -621,10 +766,55 @@ function App() {
             <table style={md3Table}>
               <thead style={{ backgroundColor: theme.secondaryContainer }}>
                 <tr>
-                  <th style={thStyle}>날짜</th>
+                  {/* 날짜 헤더 */}
+                  <th
+                    onClick={() => handleSort("pay_date")}
+                    style={{
+                      ...thStyle,
+                      cursor: "pointer",
+                      userSelect: "none",
+                    }}
+                  >
+                    날짜{" "}
+                    {sortConfig.key === "pay_date"
+                      ? sortConfig.direction === "asc"
+                        ? "▲"
+                        : "▼"
+                      : "↕"}
+                  </th>
                   <th style={thStyle}>이용자</th>
-                  <th style={thStyle}>가맹점</th>
-                  <th style={thStyle}>금액</th>
+                  {/* 가맹점 헤더 */}
+                  <th
+                    onClick={() => handleSort("vendor")}
+                    style={{
+                      ...thStyle,
+                      cursor: "pointer",
+                      userSelect: "none",
+                    }}
+                  >
+                    가맹점{" "}
+                    {sortConfig.key === "vendor"
+                      ? sortConfig.direction === "asc"
+                        ? "▲"
+                        : "▼"
+                      : "↕"}
+                  </th>
+                  {/* 금액 헤더 */}
+                  <th
+                    onClick={() => handleSort("amount")}
+                    style={{
+                      ...thStyle,
+                      cursor: "pointer",
+                      userSelect: "none",
+                    }}
+                  >
+                    금액{" "}
+                    {sortConfig.key === "amount"
+                      ? sortConfig.direction === "asc"
+                        ? "▲"
+                        : "▼"
+                      : "↕"}
+                  </th>
                   <th style={thStyle}>태그 변환</th>
                 </tr>
               </thead>
@@ -875,6 +1065,88 @@ const tooltipStyle = {
   boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
   fontSize: "12px",
   zIndex: 100,
+};
+
+const modalOverlayStyle = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: "rgba(0, 0, 0, 0.6)",
+  backdropFilter: "blur(4px)",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  zIndex: 2000,
+};
+
+const modalContentStyle = {
+  width: "90%",
+  maxWidth: "650px",
+  maxHeight: "85vh",
+  borderRadius: "24px",
+  padding: "24px",
+  display: "flex",
+  flexDirection: "column",
+  boxShadow: "0 20px 40px rgba(0,0,0,0.3)",
+};
+
+const modalHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: "20px",
+  borderBottom: "1px solid rgba(0,0,0,0.1)",
+  paddingBottom: "12px",
+};
+
+const modalBodyStyle = {
+  overflowY: "auto",
+  paddingRight: "8px",
+};
+
+const sectionStyle = {
+  marginBottom: "24px",
+  borderBottom: "1px solid rgba(0,0,0,0.05)",
+  paddingBottom: "16px",
+};
+
+const ulStyle = {
+  paddingLeft: "20px",
+  lineHeight: "1.8",
+};
+
+const expenseBoxStyle = (theme) => ({
+  backgroundColor: theme.surfaceVariant || "#f5f5f5",
+  padding: "16px",
+  borderRadius: "16px",
+  fontSize: "0.95rem",
+});
+
+const itemStyle = {
+  marginBottom: "8px",
+};
+
+const closeBtnStyle = {
+  background: "none",
+  border: "none",
+  fontSize: "1.5rem",
+  cursor: "pointer",
+  color: "#999",
+};
+
+const actionBtnStyle = {
+  padding: "12px 24px",
+  borderRadius: "12px",
+  border: "none",
+  fontWeight: "bold",
+  cursor: "pointer",
+  width: "100%",
+};
+
+const modalFooterStyle = {
+  marginTop: "20px",
 };
 
 export default App;
