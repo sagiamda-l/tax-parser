@@ -45,6 +45,20 @@ const MD3_THEME = {
   },
 };
 
+// 기준이 되는 EXPENSE_TAGS 순서 정의
+const EXPENSE_TAGS_ORDER = [
+  "기업업무추진비",
+  "기부금",
+  "차량유지비",
+  "지급수수료",
+  "소모품비",
+  "운반비",
+  "광고선전비",
+  "여비교통비",
+  "기타",
+  "불필요",
+];
+
 const EXPENSE_TAGS = {
   기업업무추진비: { color: "#ff8787", icon: "🤝" },
   기부금: { color: "#f06595", icon: "❤️" },
@@ -56,6 +70,14 @@ const EXPENSE_TAGS = {
   여비교통비: { color: "#fcc419", icon: "🚄" },
   기타: { color: "#adb5bd", icon: "📦" },
   불필요: { color: "#868e96", icon: "❌" },
+};
+
+// 유틸리티 함수: 유연한 금액 숫자 변환 유틸 (포맷터 간섭 방지)
+const parseToNumber = (val) => {
+  if (val === undefined || val === null) return 0;
+  if (typeof val === "number") return val;
+  const cleaned = String(val).replace(/[^0-9.-]/g, "");
+  return Number(cleaned) || 0;
 };
 
 function App() {
@@ -127,10 +149,9 @@ function App() {
   );
   const tagList = useMemo(() => ["All", ...Object.keys(EXPENSE_TAGS)], []);
 
-  // 1. 모든 필터링 조건 통합 (기본 검색 + 금액 조건 검색)
+  // 1. 모든 필터링 조건 통합 (금액 조건 검색 파싱 보완)
   const filteredData = useMemo(() => {
     return records.filter((r) => {
-      // 기본 텍스트 및 셀렉트 필터 검사
       const matchesCustomer =
         filters.customer === "All" || r.customer === filters.customer;
       const matchesFilename =
@@ -138,8 +159,8 @@ function App() {
       const matchesTag =
         filters.tag === "All" || (modified[r.id] || r.tag) === filters.tag;
       const matchesSearch = r.vendor
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
+        ? r.vendor.toLowerCase().includes(searchTerm.toLowerCase())
+        : false;
 
       if (
         !matchesCustomer ||
@@ -150,10 +171,10 @@ function App() {
         return false;
       }
 
-      // 금액 필터 조건 검사
+      // 금액 필터 조건 검사 (문자열 포맷 예외처리 포함)
       if (filterOperator === "all" || !filterAmount) return true;
-      const recordAmt = Number(r.amount) || 0;
-      const targetAmt = Number(filterAmount) || 0;
+      const recordAmt = parseToNumber(r.amount);
+      const targetAmt = parseToNumber(filterAmount);
 
       switch (filterOperator) {
         case "gt":
@@ -174,32 +195,45 @@ function App() {
     });
   }, [records, filters, searchTerm, modified, filterOperator, filterAmount]);
 
-  // 통계 수치는 완전히 필터링된 데이터를 기준으로 계산
-  const totalAmount = filteredData.reduce((sum, r) => sum + r.amount, 0);
+  // 통계용 금액 총액 계산 안전화
+  const totalAmount = useMemo(() => {
+    return filteredData.reduce((sum, r) => sum + parseToNumber(r.amount), 0);
+  }, [filteredData]);
 
+  // 지출 비율 데이터 구성 (EXPENSE_TAGS_ORDER 기준 정렬 고정)
   const tagStats = useMemo(() => {
     const tags = {};
     filteredData.forEach((r) => {
       const t = modified[r.id] || r.tag;
+      if (!t) return;
       if (!tags[t]) tags[t] = { total: 0, count: 0 };
-      tags[t].total += r.amount;
+      tags[t].total += parseToNumber(r.amount);
       tags[t].count += 1;
     });
+
     return Object.entries(tags)
       .map(([tag, val]) => ({
         tag,
         ...val,
         percentage: totalAmount > 0 ? (val.total / totalAmount) * 100 : 0,
       }))
-      .sort((a, b) => b.total - a.total);
+      .sort((a, b) => {
+        // EXPENSE_TAGS_ORDER 순서대로 위치 탐색하여 고정 정렬
+        const indexA = EXPENSE_TAGS_ORDER.indexOf(a.tag);
+        const indexB = EXPENSE_TAGS_ORDER.indexOf(b.tag);
+        const orderA = indexA === -1 ? 999 : indexA;
+        const orderB = indexB === -1 ? 999 : indexB;
+        return orderA - orderB;
+      });
   }, [filteredData, totalAmount, modified]);
 
   const monthlyTrend = useMemo(() => {
     const months = {};
     filteredData.forEach((r) => {
+      if (!r.pay_date) return;
       const m = r.pay_date.substring(0, 7);
       if (!months[m]) months[m] = { month: m, total: 0, count: 0 };
-      months[m].total += r.amount;
+      months[m].total += parseToNumber(r.amount);
       months[m].count += 1;
     });
     return Object.values(months).sort((a, b) => a.month.localeCompare(b.month));
@@ -215,8 +249,8 @@ function App() {
         let bValue = b[sortConfig.key];
 
         if (sortConfig.key === "amount") {
-          aValue = Number(aValue) || 0;
-          bValue = Number(bValue) || 0;
+          aValue = parseToNumber(aValue);
+          bValue = parseToNumber(bValue);
         }
 
         if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
@@ -328,7 +362,6 @@ function App() {
           <h1 style={headlineMedium}>Tax Master v8.1</h1>
         </div>
 
-        {/* 상단 버튼 영역 주석 문법 수정 */}
         <div
           style={{
             display: "flex",
@@ -820,7 +853,6 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {/* filteredData 대신 최종 정렬/필터가 보장된 processedRecords 사용 */}
                 {processedRecords.map((r) => (
                   <tr
                     key={r.id}
@@ -840,7 +872,11 @@ function App() {
                       </span>
                     </td>
                     <td
-                      style={{ ...tdStyle, textAlign: "left", fontWeight: 500 }}
+                      style={{
+                        ...tdStyle,
+                        textAlign: "left",
+                        fontWeight: 500,
+                      }}
                     >
                       {r.vendor}
                     </td>
@@ -851,7 +887,7 @@ function App() {
                         fontWeight: "bold",
                       }}
                     >
-                      {r.amount.toLocaleString()}원
+                      {parseToNumber(r.amount).toLocaleString()}원
                     </td>
                     <td style={tdStyle}>
                       <div
@@ -909,11 +945,76 @@ function App() {
           </div>
         </div>
       </main>
+
+      {/* 도움말 모달 컴포넌트 추가 */}
+      {showHelp && (
+        <div style={modalOverlay} onClick={toggleHelp}>
+          <div
+            style={{
+              ...modalContent,
+              backgroundColor: theme.surface,
+              color: theme.onSurface,
+              borderColor: theme.outlineVariant,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ marginTop: 0, fontSize: "20px" }}>
+              💡 Tax Master 사용 가이드
+            </h2>
+            <hr
+              style={{
+                borderColor: theme.outlineVariant,
+                margin: "16px 0",
+                borderStyle: "solid",
+                borderWidth: "0.5px",
+              }}
+            />
+            <ul
+              style={{
+                paddingLeft: "20px",
+                lineHeight: "1.8",
+                fontSize: "14px",
+              }}
+            >
+              <li>
+                <strong>상단 필터:</strong> 연도, 성명, 파일, 태그를 다중
+                선택하여 데이터를 세부 교차 분류합니다.
+              </li>
+              <li>
+                <strong>가맹점 검색:</strong> 텍스트를 입력하면 가맹점 이름
+                기준으로 실시간 매칭 필터링됩니다.
+              </li>
+              <li>
+                <strong>금액 검색:</strong> 조건식 부호(크다, 같다 등)를
+                지정하고 우측 필드에 숫자를 입력해 필터를 작동시킵니다.
+              </li>
+              <li>
+                <strong>태그 변환 (🪄):</strong> 마술봉 클릭 시 현재 행에 선택된
+                태그를 <em>동일한 가맹점 명칭을 가진 전체 내역</em>에 일괄
+                할당합니다. 변경 후 우측 상단의 <strong>[일괄 저장]</strong>을
+                눌러야 반영됩니다.
+              </li>
+            </ul>
+            <div style={{ textAlign: "right", marginTop: "24px" }}>
+              <button
+                style={{
+                  ...filledBtn,
+                  backgroundColor: theme.primary,
+                  color: theme.onPrimary,
+                }}
+                onClick={toggleHelp}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// --- MD3 Style Objects ---
+// --- MD3 Style Objects (누락 구역 보완 및 모달 스타일 정의) ---
 const headlineMedium = {
   fontSize: "22px",
   fontWeight: 600,
@@ -1026,32 +1127,22 @@ const outlineBtn = {
   padding: "12px 24px",
   borderRadius: "100px",
   border: "1px solid",
-  background: "transparent",
-  color: "inherit",
-  fontWeight: "bold",
+  backgroundColor: "transparent",
   cursor: "pointer",
+  fontWeight: "bold",
 };
-const md3Table = { width: "100%", borderCollapse: "collapse" };
-
-// 누락되었던 스타일 오브젝트들 추가 정의
-const thStyle = {
-  padding: "16px",
-  fontSize: "13px",
-  fontWeight: "600",
-  borderBottom: "2px solid rgba(128,128,128,0.2)",
-};
-const tdStyle = { padding: "14px 16px", fontSize: "13px", textAlign: "center" };
+const thStyle = { padding: "16px 12px", fontSize: "13px", fontWeight: "600" };
+const tdStyle = { padding: "14px 12px", fontSize: "13px" };
 const badgeStyle = {
-  padding: "4px 10px",
+  padding: "4px 8px",
   borderRadius: "8px",
   fontSize: "12px",
-  fontWeight: "500",
 };
 const miniSelect = {
-  padding: "6px 8px",
+  padding: "6px 10px",
   borderRadius: "8px",
-  border: "1px solid rgba(128,128,128,0.3)",
-  backgroundColor: "transparent",
+  border: "1px solid #ccc",
+  background: "transparent",
   fontSize: "12px",
 };
 const magicBtn = {
@@ -1059,13 +1150,35 @@ const magicBtn = {
   border: "none",
   cursor: "pointer",
   fontSize: "14px",
-  padding: "4px 8px",
 };
 const tooltipStyle = {
-  padding: "12px",
-  borderRadius: "12px",
+  padding: "8px 12px",
+  borderRadius: "8px",
   fontSize: "12px",
-  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+  boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+};
+const md3Table = { width: "100%", borderCollapse: "collapse" };
+
+// 신규 추가: 도움말 모달 전용 레이아웃 스타일
+const modalOverlay = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: "rgba(0, 0, 0, 0.4)",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  zIndex: 1000,
+};
+const modalContent = {
+  padding: "32px",
+  borderRadius: "28px",
+  border: "1px solid",
+  maxWidth: "480px",
+  width: "90%",
+  boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
 };
 
 export default App;
