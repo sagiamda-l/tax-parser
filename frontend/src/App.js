@@ -25,7 +25,7 @@ const MD3_THEME = {
     outline: "#79747e",
     outlineVariant: "#c9c4d0",
     secondaryContainer: "#e8def8",
-    tooltipBg: "#313033", // 불투명 배경
+    tooltipBg: "#313033",
     tooltipText: "#f4eff4",
   },
   dark: {
@@ -40,7 +40,7 @@ const MD3_THEME = {
     outline: "#938f99",
     outlineVariant: "#49454f",
     secondaryContainer: "#332d41",
-    tooltipBg: "#e6e1e5", // 불투명 배경
+    tooltipBg: "#e6e1e5",
     tooltipText: "#313033",
   },
 };
@@ -72,8 +72,16 @@ function App() {
     tag: "All",
   });
   const [searchTerm, setSearchTerm] = useState("");
-  const [hoverData, setHoverData] = useState(null); // 지출 비율 툴팁용
+  const [hoverData, setHoverData] = useState(null);
   const fileInputRef = useRef(null);
+
+  // 금액 필터 및 정렬 상태
+  const [filterOperator, setFilterOperator] = useState("all");
+  const [filterAmount, setFilterAmount] = useState("");
+  const [sortConfig, setSortConfig] = useState({
+    key: "pay_date",
+    direction: "asc",
+  });
 
   // 테마 시스템
   useEffect(() => {
@@ -105,7 +113,7 @@ function App() {
     }
   };
 
-  // 필터 및 통계 로직
+  // 필터 및 통계 기초 리스트 생성
   const customerList = useMemo(
     () =>
       ["All", ...new Set(records.map((r) => r.customer))]
@@ -119,19 +127,54 @@ function App() {
   );
   const tagList = useMemo(() => ["All", ...Object.keys(EXPENSE_TAGS)], []);
 
-  const filteredData = useMemo(
-    () =>
-      records.filter(
-        (r) =>
-          (filters.customer === "All" || r.customer === filters.customer) &&
-          (filters.filename === "All" || r.filename === filters.filename) &&
-          (filters.tag === "All" ||
-            (modified[r.id] || r.tag) === filters.tag) &&
-          r.vendor.toLowerCase().includes(searchTerm.toLowerCase()),
-      ),
-    [records, filters, searchTerm, modified],
-  );
+  // 1. 모든 필터링 조건 통합 (기본 검색 + 금액 조건 검색)
+  const filteredData = useMemo(() => {
+    return records.filter((r) => {
+      // 기본 텍스트 및 셀렉트 필터 검사
+      const matchesCustomer =
+        filters.customer === "All" || r.customer === filters.customer;
+      const matchesFilename =
+        filters.filename === "All" || r.filename === filters.filename;
+      const matchesTag =
+        filters.tag === "All" || (modified[r.id] || r.tag) === filters.tag;
+      const matchesSearch = r.vendor
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase());
 
+      if (
+        !matchesCustomer ||
+        !matchesFilename ||
+        !matchesTag ||
+        !matchesSearch
+      ) {
+        return false;
+      }
+
+      // 금액 필터 조건 검사
+      if (filterOperator === "all" || !filterAmount) return true;
+      const recordAmt = Number(r.amount) || 0;
+      const targetAmt = Number(filterAmount) || 0;
+
+      switch (filterOperator) {
+        case "gt":
+          return recordAmt > targetAmt;
+        case "lt":
+          return recordAmt < targetAmt;
+        case "eq":
+          return recordAmt === targetAmt;
+        case "gte":
+          return recordAmt >= targetAmt;
+        case "lte":
+          return recordAmt <= targetAmt;
+        case "ne":
+          return recordAmt !== targetAmt;
+        default:
+          return true;
+      }
+    });
+  }, [records, filters, searchTerm, modified, filterOperator, filterAmount]);
+
+  // 통계 수치는 완전히 필터링된 데이터를 기준으로 계산
   const totalAmount = filteredData.reduce((sum, r) => sum + r.amount, 0);
 
   const tagStats = useMemo(() => {
@@ -162,22 +205,46 @@ function App() {
     return Object.values(months).sort((a, b) => a.month.localeCompare(b.month));
   }, [filteredData]);
 
-  // --- 핵심 기능: 일괄 태그 변환 ---
+  // 2. 최종 필터링된 결과 위에 정렬(Sort)만 적용
+  const processedRecords = useMemo(() => {
+    let result = [...filteredData];
+
+    if (sortConfig.key) {
+      result.sort((a, b) => {
+        let aValue = a[sortConfig.key];
+        let bValue = b[sortConfig.key];
+
+        if (sortConfig.key === "amount") {
+          aValue = Number(aValue) || 0;
+          bValue = Number(bValue) || 0;
+        }
+
+        if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+    return result;
+  }, [filteredData, sortConfig]);
+
+  const handleSort = (key) => {
+    let direction = "asc";
+    if (sortConfig.key === key && sortConfig.direction === "asc") {
+      direction = "desc";
+    }
+    setSortConfig({ key, direction });
+  };
+
   const applyTagToAllSameVendor = (vendor, newTag) => {
     if (!vendor || !newTag) return;
-
-    // 함수형 업데이트(prevModified)를 사용하면 항상 가장 최신의 상태를 보장받습니다.
     setModified((prevModified) => {
       const nextModified = { ...prevModified };
       const targetVendor = vendor.trim();
-
       records.forEach((r) => {
-        // 가맹점명 앞뒤 공백을 제거하고 비교하여 매칭 정확도를 높입니다.
         if (r.vendor && r.vendor.trim() === targetVendor) {
           nextModified[r.id] = newTag;
         }
       });
-
       return nextModified;
     });
   };
@@ -204,7 +271,26 @@ function App() {
     setFile(null);
   };
 
-  // 커스텀 툴팁 컴포넌트 (불투명 배경)
+  const syncToSheets = async () => {
+    try {
+      const res = await axios.post(`${API_URL}/api/sync-sheets`, {
+        year: filters.year,
+      });
+      if (res.data.status === "success") {
+        alert(
+          `${res.data.sheet_name} 시트에 ${res.data.count}건이 동기화되었습니다.`,
+        );
+      } else {
+        alert(`에러: ${res.data.message}`);
+      }
+    } catch (err) {
+      alert("서버 통신 중 오류가 발생했습니다.");
+    }
+  };
+
+  const [showHelp, setShowHelp] = useState(false);
+  const toggleHelp = () => setShowHelp(!showHelp);
+
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
@@ -227,96 +313,6 @@ function App() {
     return null;
   };
 
-  // --- App.js 내부에 추가할 핸들러 ---
-  const syncToSheets = async () => {
-    try {
-      // 현재 UI에서 선택된 연도(filters.year)를 전송
-      const res = await axios.post(`${API_URL}/api/sync-sheets`, {
-        year: filters.year,
-      });
-
-      if (res.data.status === "success") {
-        alert(
-          `${res.data.sheet_name} 시트에 ${res.data.count}건이 동기화되었습니다.`,
-        );
-      } else {
-        alert(`에러: ${res.data.message}`);
-      }
-    } catch (err) {
-      alert("서버 통신 중 오류가 발생했습니다.");
-    }
-  };
-
-  const [showHelp, setShowHelp] = useState(false);
-
-  // 도움말 열기/닫기 함수
-  const toggleHelp = () => setShowHelp(!showHelp);
-
-  // 1. 상태 추가
-  const [filterOperator, setFilterOperator] = useState("all"); // 전체, gt, lt, eq, gte, lte, ne
-  const [filterAmount, setFilterAmount] = useState("");
-  const [sortConfig, setSortConfig] = useState({
-    key: "pay_date",
-    direction: "asc",
-  }); // 기본값: 날짜 오름차순
-
-  // 2. 정렬 변경 함수
-  const handleSort = (key) => {
-    let direction = "asc";
-    if (sortConfig.key === key && sortConfig.direction === "asc") {
-      direction = "desc";
-    }
-    setSortConfig({ key, direction });
-  };
-
-  // 3. [핵심] 필터링 + 정렬이 적용된 최종 리스트 계산
-  const processedRecords = useMemo(() => {
-    // 3-1. 금액 필터링 적용
-    let result = records.filter((r) => {
-      if (filterOperator === "all" || !filterAmount) return true;
-
-      const recordAmt = Number(r.amount) || 0;
-      const targetAmt = Number(filterAmount) || 0;
-
-      switch (filterOperator) {
-        case "gt":
-          return recordAmt > targetAmt; // 크다
-        case "lt":
-          return recordAmt < targetAmt; // 작다
-        case "eq":
-          return recordAmt === targetAmt; // 같다
-        case "gte":
-          return recordAmt >= targetAmt; // 같거나 크다
-        case "lte":
-          return recordAmt <= targetAmt; // 같거나 작다
-        case "ne":
-          return recordAmt !== targetAmt; // 다르다
-        default:
-          return true;
-      }
-    });
-
-    // 3-2. 정렬 적용
-    if (sortConfig.key) {
-      result.sort((a, b) => {
-        let aValue = a[sortConfig.key];
-        let bValue = b[sortConfig.key];
-
-        // 금액 정렬일 경우 숫자로 변환하여 비교
-        if (sortConfig.key === "amount") {
-          aValue = Number(aValue) || 0;
-          bValue = Number(bValue) || 0;
-        }
-
-        if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
-        if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return result;
-  }, [records, filterOperator, filterAmount, sortConfig]);
-
   return (
     <div
       style={{
@@ -331,12 +327,14 @@ function App() {
           <span style={{ fontSize: "28px" }}>💎</span>
           <h1 style={headlineMedium}>Tax Master v8.1</h1>
         </div>
-        // 상단 버튼 예시
+
+        {/* 상단 버튼 영역 주석 문법 수정 */}
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
+            gap: "20px",
           }}
         >
           <h1>종합소득세 신고 도우미</h1>
@@ -610,13 +608,16 @@ function App() {
               />
             </div>
           </div>
+
+          {/* 금액 검색 조건 바 */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
               gap: "10px",
+              marginTop: "15px",
               marginBottom: "15px",
-              padding: "10px",
+              padding: "10px 16px",
               backgroundColor: theme.surfaceVariant || "#f9f9f9",
               borderRadius: "12px",
             }}
@@ -624,8 +625,6 @@ function App() {
             <span style={{ fontSize: "0.9rem", fontWeight: "bold" }}>
               💰 금액 검색 :
             </span>
-
-            {/* 조건 선택 Dropdown */}
             <select
               value={filterOperator}
               onChange={(e) => setFilterOperator(e.target.value)}
@@ -633,6 +632,8 @@ function App() {
                 padding: "6px 12px",
                 borderRadius: "8px",
                 border: "1px solid #ccc",
+                background: "transparent",
+                color: "inherit",
               }}
             >
               <option value="all">전체</option>
@@ -644,11 +645,10 @@ function App() {
               <option value="ne">다르다 (!=)</option>
             </select>
 
-            {/* 금액 입력란 ('전체'가 아닐 때만 노출) */}
             {filterOperator !== "all" && (
               <input
                 type="number"
-                placeholder="금액을 입력하세요"
+                placeholder="금액 입력"
                 value={filterAmount}
                 onChange={(e) => setFilterAmount(e.target.value)}
                 style={{
@@ -656,10 +656,13 @@ function App() {
                   borderRadius: "8px",
                   border: "1px solid #ccc",
                   width: "150px",
+                  background: "transparent",
+                  color: "inherit",
                 }}
               />
             )}
           </div>
+
           <div style={actionRow}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <button
@@ -736,7 +739,7 @@ function App() {
                   ...filledBtn,
                   backgroundColor: "#34a853",
                   color: "#fff",
-                }} // 구글 녹색 테마
+                }}
                 onClick={syncToSheets}
               >
                 📊 시트 동기화
@@ -754,6 +757,7 @@ function App() {
             </div>
           </div>
 
+          {/* 데이터 테이블 구역 */}
           <div
             style={{
               ...md3Card,
@@ -766,7 +770,6 @@ function App() {
             <table style={md3Table}>
               <thead style={{ backgroundColor: theme.secondaryContainer }}>
                 <tr>
-                  {/* 날짜 헤더 */}
                   <th
                     onClick={() => handleSort("pay_date")}
                     style={{
@@ -783,7 +786,6 @@ function App() {
                       : "↕"}
                   </th>
                   <th style={thStyle}>이용자</th>
-                  {/* 가맹점 헤더 */}
                   <th
                     onClick={() => handleSort("vendor")}
                     style={{
@@ -799,7 +801,6 @@ function App() {
                         : "▼"
                       : "↕"}
                   </th>
-                  {/* 금액 헤더 */}
                   <th
                     onClick={() => handleSort("amount")}
                     style={{
@@ -819,7 +820,8 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {filteredData.map((r) => (
+                {/* filteredData 대신 최종 정렬/필터가 보장된 processedRecords 사용 */}
+                {processedRecords.map((r) => (
                   <tr
                     key={r.id}
                     style={{
@@ -856,17 +858,15 @@ function App() {
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          justify: "center",
+                          justifyContent: "center",
                           gap: "4px",
                         }}
                       >
-                        {/* 현재 행의 최종 태그 값을 명시적으로 정의 (선택 우선 -> 원본 백업) */}
                         {(() => {
                           const currentTag =
                             modified[r.id] !== undefined
                               ? modified[r.id]
                               : r.tag;
-
                           return (
                             <>
                               <select
@@ -888,7 +888,6 @@ function App() {
                                   </option>
                                 ))}
                               </select>
-
                               <button
                                 onClick={() =>
                                   applyTagToAllSameVendor(r.vendor, currentTag)
@@ -1033,120 +1032,40 @@ const outlineBtn = {
   cursor: "pointer",
 };
 const md3Table = { width: "100%", borderCollapse: "collapse" };
+
+// 누락되었던 스타일 오브젝트들 추가 정의
 const thStyle = {
-  padding: "14px",
-  fontSize: "12px",
-  textAlign: "center",
-  fontWeight: "bold",
+  padding: "16px",
+  fontSize: "13px",
+  fontWeight: "600",
+  borderBottom: "2px solid rgba(128,128,128,0.2)",
 };
-const tdStyle = { padding: "14px", fontSize: "13px", textAlign: "center" };
+const tdStyle = { padding: "14px 16px", fontSize: "13px", textAlign: "center" };
 const badgeStyle = {
   padding: "4px 10px",
   borderRadius: "8px",
-  fontSize: "11px",
+  fontSize: "12px",
+  fontWeight: "500",
 };
 const miniSelect = {
-  border: "none",
-  background: "transparent",
-  fontSize: "13px",
-  cursor: "pointer",
+  padding: "6px 8px",
+  borderRadius: "8px",
+  border: "1px solid rgba(128,128,128,0.3)",
+  backgroundColor: "transparent",
+  fontSize: "12px",
 };
 const magicBtn = {
   background: "none",
   border: "none",
   cursor: "pointer",
-  fontSize: "16px",
-  padding: "0 4px",
-  transition: "transform 0.2s",
+  fontSize: "14px",
+  padding: "4px 8px",
 };
 const tooltipStyle = {
   padding: "12px",
-  borderRadius: "16px",
-  boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
-  fontSize: "12px",
-  zIndex: 100,
-};
-
-const modalOverlayStyle = {
-  position: "fixed",
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  backgroundColor: "rgba(0, 0, 0, 0.6)",
-  backdropFilter: "blur(4px)",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  zIndex: 2000,
-};
-
-const modalContentStyle = {
-  width: "90%",
-  maxWidth: "650px",
-  maxHeight: "85vh",
-  borderRadius: "24px",
-  padding: "24px",
-  display: "flex",
-  flexDirection: "column",
-  boxShadow: "0 20px 40px rgba(0,0,0,0.3)",
-};
-
-const modalHeaderStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginBottom: "20px",
-  borderBottom: "1px solid rgba(0,0,0,0.1)",
-  paddingBottom: "12px",
-};
-
-const modalBodyStyle = {
-  overflowY: "auto",
-  paddingRight: "8px",
-};
-
-const sectionStyle = {
-  marginBottom: "24px",
-  borderBottom: "1px solid rgba(0,0,0,0.05)",
-  paddingBottom: "16px",
-};
-
-const ulStyle = {
-  paddingLeft: "20px",
-  lineHeight: "1.8",
-};
-
-const expenseBoxStyle = (theme) => ({
-  backgroundColor: theme.surfaceVariant || "#f5f5f5",
-  padding: "16px",
-  borderRadius: "16px",
-  fontSize: "0.95rem",
-});
-
-const itemStyle = {
-  marginBottom: "8px",
-};
-
-const closeBtnStyle = {
-  background: "none",
-  border: "none",
-  fontSize: "1.5rem",
-  cursor: "pointer",
-  color: "#999",
-};
-
-const actionBtnStyle = {
-  padding: "12px 24px",
   borderRadius: "12px",
-  border: "none",
-  fontWeight: "bold",
-  cursor: "pointer",
-  width: "100%",
-};
-
-const modalFooterStyle = {
-  marginTop: "20px",
+  fontSize: "12px",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
 };
 
 export default App;
