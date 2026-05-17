@@ -515,7 +515,7 @@ function App() {
             }}
           >
             <h3 style={titleSmall}>📁 업로드 히스토리</h3>
-            <div style={{ ...historyList, maxHeight: "320px" }}>
+            <div style={{ ...historyList }}>
               <table
                 style={{
                   width: "100%",
@@ -855,7 +855,11 @@ function App() {
             </div>
             <div style={{ display: "flex", gap: "10px" }}>
               <button
-                style={{ ...outlineBtn, borderColor: theme.outline }}
+                style={{
+                  ...outlineBtn,
+                  borderColor: theme.outline,
+                  color: theme.primary,
+                }}
                 onClick={() =>
                   axios
                     .post(`${API_URL}/export/excel`, filteredData, {
@@ -872,7 +876,11 @@ function App() {
                 Excel
               </button>
               <button
-                style={{ ...outlineBtn, borderColor: theme.outline }}
+                style={{
+                  ...outlineBtn,
+                  borderColor: theme.outline,
+                  color: theme.primary,
+                }}
                 onClick={() =>
                   axios
                     .post(
@@ -1154,7 +1162,13 @@ const titleSmall = {
   opacity: 0.9,
 };
 const bodySmall = { fontSize: "12px", opacity: 0.7 };
-const labelMedium = { fontSize: "12px", fontWeight: 600 };
+const labelMedium = {
+  fontSize: "12px",
+  fontWeight: 600,
+  display: "inline-flex", // 📐 이모지와 텍스트를 한 라인으로 묶음
+  alignItems: "center", // 📐 이모지 상단 잘림 방지
+  gap: "6px", // 아이콘과 글자 사이 간격 확보
+};
 const labelSmall = {
   fontSize: "11px",
   fontWeight: 700,
@@ -1197,6 +1211,7 @@ const ratioContainer = { marginBottom: "16px", cursor: "pointer" };
 const ratioHeader = {
   display: "flex",
   justifyContent: "space-between",
+  alignItems: "center", // 📐 위아래 정렬 수평 맞춤
   marginBottom: "6px",
 };
 const progressBg = {
@@ -1207,7 +1222,7 @@ const progressBg = {
   overflow: "hidden",
 };
 const progressFill = { height: "100%", transition: "width 0.8s ease" };
-const historyList = { marginTop: "16px", overflowY: "auto" };
+const historyList = { marginTop: "16px" };
 const inputGroup = { display: "flex", flexDirection: "column" };
 const md3Select = {
   padding: "12px",
