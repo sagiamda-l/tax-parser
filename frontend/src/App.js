@@ -9,6 +9,8 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
+// 🤝 신규 추가: 분리되어 있는 신고도움말 모달 컴포넌트 임포트
+import HelpModal from "./HelpModal";
 
 const API_URL = "http://192.168.0.241:3001";
 
@@ -45,7 +47,6 @@ const MD3_THEME = {
   },
 };
 
-// 기준이 되는 EXPENSE_TAGS 순서 정의
 const EXPENSE_TAGS_ORDER = [
   "기업업무추진비",
   "기부금",
@@ -72,7 +73,6 @@ const EXPENSE_TAGS = {
   불필요: { color: "#868e96", icon: "❌" },
 };
 
-// 유틸리티 함수: 유연한 금액 숫자 변환 유틸 (포맷터 간섭 방지)
 const parseToNumber = (val) => {
   if (val === undefined || val === null) return 0;
   if (typeof val === "number") return val;
@@ -97,7 +97,6 @@ function App() {
   const [hoverData, setHoverData] = useState(null);
   const fileInputRef = useRef(null);
 
-  // 금액 필터 및 정렬 상태
   const [filterOperator, setFilterOperator] = useState("all");
   const [filterAmount, setFilterAmount] = useState("");
   const [sortConfig, setSortConfig] = useState({
@@ -105,7 +104,12 @@ function App() {
     direction: "asc",
   });
 
-  // 테마 시스템
+  // 📋 상태 관리 추가: 기존 도움말(사용법) 외에 종합소득세 신고도움말 팝업을 열기 위한 제어 상태
+  const [showHelp, setShowHelp] = useState(false);
+  const [showReportHelp, setShowReportHelp] = useState(false);
+
+  const toggleHelp = () => setShowHelp(!showHelp);
+
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const updateTheme = () => {
@@ -135,7 +139,6 @@ function App() {
     }
   };
 
-  // 필터 및 통계 기초 리스트 생성
   const customerList = useMemo(
     () =>
       ["All", ...new Set(records.map((r) => r.customer))]
@@ -149,7 +152,6 @@ function App() {
   );
   const tagList = useMemo(() => ["All", ...Object.keys(EXPENSE_TAGS)], []);
 
-  // 1. 모든 필터링 조건 통합 (금액 조건 검색 파싱 보완)
   const filteredData = useMemo(() => {
     return records.filter((r) => {
       const matchesCustomer =
@@ -171,7 +173,6 @@ function App() {
         return false;
       }
 
-      // 금액 필터 조건 검사 (문자열 포맷 예외처리 포함)
       if (filterOperator === "all" || !filterAmount) return true;
       const recordAmt = parseToNumber(r.amount);
       const targetAmt = parseToNumber(filterAmount);
@@ -195,12 +196,10 @@ function App() {
     });
   }, [records, filters, searchTerm, modified, filterOperator, filterAmount]);
 
-  // 통계용 금액 총액 계산 안전화
   const totalAmount = useMemo(() => {
     return filteredData.reduce((sum, r) => sum + parseToNumber(r.amount), 0);
   }, [filteredData]);
 
-  // 지출 비율 데이터 구성 (EXPENSE_TAGS_ORDER 기준 정렬 고정)
   const tagStats = useMemo(() => {
     const tags = {};
     filteredData.forEach((r) => {
@@ -218,7 +217,6 @@ function App() {
         percentage: totalAmount > 0 ? (val.total / totalAmount) * 100 : 0,
       }))
       .sort((a, b) => {
-        // EXPENSE_TAGS_ORDER 순서대로 위치 탐색하여 고정 정렬
         const indexA = EXPENSE_TAGS_ORDER.indexOf(a.tag);
         const indexB = EXPENSE_TAGS_ORDER.indexOf(b.tag);
         const orderA = indexA === -1 ? 999 : indexA;
@@ -239,7 +237,6 @@ function App() {
     return Object.values(months).sort((a, b) => a.month.localeCompare(b.month));
   }, [filteredData]);
 
-  // 2. 최종 필터링된 결과 위에 정렬(Sort)만 적용
   const processedRecords = useMemo(() => {
     let result = [...filteredData];
 
@@ -322,9 +319,6 @@ function App() {
     }
   };
 
-  const [showHelp, setShowHelp] = useState(false);
-  const toggleHelp = () => setShowHelp(!showHelp);
-
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
@@ -371,7 +365,8 @@ function App() {
           }}
         >
           <h1>종합소득세 신고 도우미</h1>
-          <div>
+          {/* 📋 도움말 -> 사용법 전환 및 우측 신고도움말 컴포넌트 호출 버튼 배치 구역 */}
+          <div style={{ display: "flex", gap: "8px" }}>
             <button
               onClick={toggleHelp}
               style={{
@@ -384,7 +379,22 @@ function App() {
                 fontWeight: "bold",
               }}
             >
-              ❓ 도움말
+              ❓ 사용법
+            </button>
+            <button
+              onClick={() => setShowReportHelp(true)}
+              style={{
+                background: theme.primary,
+                border: `1px solid ${theme.primary}`,
+                color: theme.onPrimary,
+                borderRadius: "20px",
+                padding: "5px 15px",
+                cursor: "pointer",
+                fontWeight: "bold",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+              }}
+            >
+              💡 신고도움말
             </button>
           </div>
         </div>
@@ -493,48 +503,161 @@ function App() {
             </div>
           </section>
 
+          {/* 📊 리팩토링 구역: 업로드 히스토리를 데이터 그리드 테이블로 전환 및 자동 집계 행 구현 */}
           <section
             style={{
               ...md3Card,
               backgroundColor: theme.surfaceVariant,
               marginTop: "24px",
               flex: 1,
+              display: "flex",
+              flexDirection: "column",
             }}
           >
             <h3 style={titleSmall}>📁 업로드 히스토리</h3>
-            <div style={historyList}>
-              {stats.documents.map((d, i) => (
-                <div
-                  key={i}
-                  style={{
-                    ...historyItem,
-                    borderBottom: `1px solid ${theme.outlineVariant}`,
-                  }}
-                >
-                  <div style={{ fontSize: "11px", opacity: 0.6 }}>
-                    {d.customer}
-                  </div>
-                  <div
+            <div style={{ ...historyList, maxHeight: "320px" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: "12px",
+                  marginTop: "12px",
+                }}
+              >
+                <thead>
+                  <tr
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: "13px",
+                      borderBottom: `1px solid ${theme.outline}`,
+                      color: theme.onSurfaceVariant,
                     }}
                   >
-                    <span
+                    <th
                       style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        maxWidth: "140px",
+                        textAlign: "left",
+                        padding: "6px 2px",
+                        fontWeight: "600",
                       }}
                     >
-                      {d.filename}
-                    </span>
-                    <strong>{d.total.toLocaleString()}원</strong>
-                  </div>
-                </div>
-              ))}
+                      파일명
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 2px",
+                        fontWeight: "600",
+                        width: "50px",
+                      }}
+                    >
+                      건수
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 2px",
+                        fontWeight: "600",
+                        width: "80px",
+                      }}
+                    >
+                      금액
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.documents.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan="3"
+                        style={{
+                          textAlign: "center",
+                          padding: "20px 0",
+                          color: theme.outline,
+                        }}
+                      >
+                        업로드된 내역이 없습니다.
+                      </td>
+                    </tr>
+                  ) : (
+                    stats.documents.map((d, i) => (
+                      <tr
+                        key={i}
+                        style={{
+                          borderBottom: `1px solid ${theme.outlineVariant}`,
+                        }}
+                      >
+                        <td
+                          style={{
+                            padding: "8px 2px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            maxWidth: "120px",
+                          }}
+                          title={d.filename}
+                        >
+                          <div
+                            style={{
+                              fontSize: "10px",
+                              opacity: 0.5,
+                              marginBottom: "2px",
+                            }}
+                          >
+                            {d.customer}
+                          </div>
+                          {d.filename}
+                        </td>
+                        <td style={{ textAlign: "right", padding: "8px 2px" }}>
+                          {(d.count !== undefined
+                            ? d.count
+                            : 0
+                          ).toLocaleString()}
+                          건
+                        </td>
+                        <td
+                          style={{
+                            textAlign: "right",
+                            padding: "8px 2px",
+                            fontWeight: "600",
+                          }}
+                        >
+                          {(d.total || 0).toLocaleString()}원
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {/* 📊 파일 전체 건수 합계 및 전체 금액 합계 하단 푸터 고정 산출 */}
+                {stats.documents.length > 0 && (
+                  <tfoot>
+                    <tr
+                      style={{
+                        borderTop: `2px solid ${theme.outline}`,
+                        fontWeight: "bold",
+                        backgroundColor: "rgba(0,0,0,0.04)",
+                      }}
+                    >
+                      <td style={{ padding: "10px 2px" }}>전체 합계</td>
+                      <td style={{ textAlign: "right", padding: "10px 2px" }}>
+                        {stats.documents
+                          .reduce((sum, d) => sum + (Number(d.count) || 0), 0)
+                          .toLocaleString()}
+                        건
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          padding: "10px 2px",
+                          color: theme.primary,
+                        }}
+                      >
+                        {stats.documents
+                          .reduce((sum, d) => sum + (Number(d.total) || 0), 0)
+                          .toLocaleString()}
+                        원
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
             </div>
           </section>
         </aside>
@@ -872,11 +995,7 @@ function App() {
                       </span>
                     </td>
                     <td
-                      style={{
-                        ...tdStyle,
-                        textAlign: "left",
-                        fontWeight: 500,
-                      }}
+                      style={{ ...tdStyle, textAlign: "left", fontWeight: 500 }}
                     >
                       {r.vendor}
                     </td>
@@ -946,7 +1065,7 @@ function App() {
         </div>
       </main>
 
-      {/* 도움말 모달 컴포넌트 추가 */}
+      {/* 도움말(사용법) 모달 컴포넌트 */}
       {showHelp && (
         <div style={modalOverlay} onClick={toggleHelp}>
           <div
@@ -1010,11 +1129,18 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* 🤝 신규 배치: 신고도움말 외부 파일 링크 모달 렌더링 */}
+      <HelpModal
+        show={showReportHelp}
+        onClose={() => setShowReportHelp(false)}
+        theme={theme}
+      />
     </div>
   );
 }
 
-// --- MD3 Style Objects (누락 구역 보완 및 모달 스타일 정의) ---
+// --- MD3 Style Objects ---
 const headlineMedium = {
   fontSize: "22px",
   fontWeight: 600,
@@ -1081,12 +1207,7 @@ const progressBg = {
   overflow: "hidden",
 };
 const progressFill = { height: "100%", transition: "width 0.8s ease" };
-const historyList = {
-  marginTop: "16px",
-  maxHeight: "250px",
-  overflowY: "auto",
-};
-const historyItem = { padding: "12px 0" };
+const historyList = { marginTop: "16px", overflowY: "auto" };
 const inputGroup = { display: "flex", flexDirection: "column" };
 const md3Select = {
   padding: "12px",
@@ -1159,7 +1280,6 @@ const tooltipStyle = {
 };
 const md3Table = { width: "100%", borderCollapse: "collapse" };
 
-// 신규 추가: 도움말 모달 전용 레이아웃 스타일
 const modalOverlay = {
   position: "fixed",
   top: 0,

@@ -1,3 +1,5 @@
+import React from "react";
+
 const HelpModal = ({ show, onClose, theme }) => {
   if (!show) return null;
 
@@ -11,7 +13,7 @@ const HelpModal = ({ show, onClose, theme }) => {
         }}
       >
         <div style={modalHeaderStyle}>
-          <h2 style={{ margin: 0, fontSize: "1.5rem" }}>
+          <h2 style={{ margin: 0, fontSize: "1.3rem", fontWeight: "bold" }}>
             💡 종합소득세 신고 도움 가이드
           </h2>
           <button onClick={onClose} style={closeBtnStyle}>
@@ -21,13 +23,13 @@ const HelpModal = ({ show, onClose, theme }) => {
 
         <div style={modalBodyStyle}>
           <section style={sectionStyle}>
-            <h3>1. 홈택스 로그인 및 서비스 이동</h3>
-            <p>
+            <h3 style={{ fontSize: "15px", margin: "0 0 6px 0", color: theme.primary }}>1. 홈택스 로그인 및 서비스 이동</h3>
+            <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.6" }}>
               <a
                 href="https://hometax.go.kr/"
                 target="_blank"
                 rel="noreferrer"
-                style={{ color: theme.primary, fontWeight: "bold" }}
+                style={{ color: theme.primary, fontWeight: "bold", textDecoration: "none" }}
               >
                 홈택스(hometax.go.kr)
               </a>{" "}
@@ -37,7 +39,7 @@ const HelpModal = ({ show, onClose, theme }) => {
           </section>
 
           <section style={sectionStyle}>
-            <h3>2. 기장의무 확인</h3>
+            <h3 style={{ fontSize: "15px", margin: "0 0 6px 0", color: theme.primary }}>2. 기장의무 확인</h3>
             <ul style={ulStyle}>
               <li>
                 <b>복식부기의무자:</b> 재무제표(재무상태표, 손익계산서 등)를
@@ -51,18 +53,17 @@ const HelpModal = ({ show, onClose, theme }) => {
           </section>
 
           <section style={sectionStyle}>
-            <h3>3. 소득 합산 및 자료 유무</h3>
-            <p>
+            <h3 style={{ fontSize: "15px", margin: "0 0 6px 0", color: theme.primary }}>3. 소득 합산 및 자료 유무</h3>
+            <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.6" }}>
               사업소득 외에 근로소득이 있다면 합산 신고가 원칙입니다.
               타소득(합산대상) 자료유무 내 근로 부분에 해당 여부를 꼭
               확인하세요.
             </p>
           </section>
 
-          <section style={{ ...sectionStyle, borderBottom: "none" }}>
-            <h3>4. 간편장부명세서 필요경비 구분법</h3>
+          <section style={{ ...sectionStyle, borderBottom: "none", marginBottom: 0, paddingBottom: 0 }}>
+            <h3 style={{ fontSize: "15px", margin: "0 0 6px 0", color: theme.primary }}>4. 간편장부명세서 필요경비 구분법</h3>
             <div style={expenseBoxStyle(theme)}>
-              {/* ⚠️ 실제 DB/프론트엔드 태그명과 일치화 완료 */}
               <div style={itemStyle}>
                 <b>🤝 기업업무추진비:</b> 선물, 식대 등(카카오 선물하기, 접대
                 내역). 1,200만원 한도 내 권장.
@@ -88,15 +89,13 @@ const HelpModal = ({ show, onClose, theme }) => {
                 등.
               </div>
               <div style={itemStyle}>
-                <b>✈️ 여비교통비:</b> 출장 시 지출한 버스, 택시, 기차 등
+                <b>🚄 여비교통비:</b> 출장 시 지출한 버스, 택시, 기차 등
                 교통수단 비용.
               </div>
               <div style={itemStyle}>
-                <b>etc 기타:</b> 위 항목 외에 업무와 직접적인 연관이 있는 경비.
+                <b>📦 기타:</b> 위 항목 외에 업무와 직접적인 연관이 있는 경비.
               </div>
-              <div
-                style={{ ...itemStyle, color: "#ff4d4f", marginTop: "12px" }}
-              >
+              <div style={{ ...itemStyle, color: "#ff4d4f", marginTop: "4px" }}>
                 <b>❌ 불필요:</b> 종합소득세 세제 혜택 대상이 아닌 사적 지출
                 (신고 제외 항목).
               </div>
@@ -120,3 +119,96 @@ const HelpModal = ({ show, onClose, theme }) => {
     </div>
   );
 };
+
+// --- 도움말 모달 컴포넌트 전용 스타일 시트 정의 ---
+const modalOverlayStyle = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: "rgba(0, 0, 0, 0.5)",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  zIndex: 2000, // App 기본 내장 사용법 모달보다 상위에 노출
+};
+
+const modalContentStyle = {
+  padding: "28px",
+  borderRadius: "28px",
+  width: "90%",
+  maxWidth: "540px",
+  maxHeight: "85vh",
+  overflowY: "auto",
+  boxShadow: "0 12px 32px rgba(0,0,0,0.25)",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const modalHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: "20px",
+};
+
+const closeBtnStyle = {
+  background: "none",
+  border: "none",
+  fontSize: "20px",
+  cursor: "pointer",
+  color: "inherit",
+  opacity: 0.6,
+};
+
+const modalBodyStyle = {
+  flex: 1,
+  overflowY: "auto",
+  marginBottom: "20px",
+  paddingRight: "4px",
+};
+
+const sectionStyle = {
+  borderBottom: "1px solid rgba(128,128,128,0.15)",
+  paddingBottom: "14px",
+  marginBottom: "14px",
+};
+
+const ulStyle = {
+  paddingLeft: "20px",
+  margin: "6px 0",
+  fontSize: "13px",
+  line-height: "1.6",
+};
+
+const expenseBoxStyle = (theme) => ({
+  backgroundColor: theme.surfaceVariant,
+  padding: "14px",
+  borderRadius: "16px",
+  marginTop: "10px",
+  display: "flex",
+  flexDirection: "column",
+  gap: "8px",
+});
+
+const itemStyle = {
+  fontSize: "12.5px",
+  lineHeight: "1.5",
+};
+
+const modalFooterStyle = {
+  display: "flex",
+  justifyContent: "flex-end",
+};
+
+const actionBtnStyle = {
+  padding: "10px 24px",
+  borderRadius: "100px",
+  border: "none",
+  fontWeight: "bold",
+  cursor: "pointer",
+  boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+};
+
+export default HelpModal;
